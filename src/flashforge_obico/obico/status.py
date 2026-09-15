@@ -88,20 +88,18 @@ def build_status(snapshot: PrinterSnapshot | None, tracker: JobTracker, state_te
 
 
 def webcam_entry(*, name: str, is_primary: bool, stream_url: str, snapshot_url: str) -> dict:
-    """One entry of `settings.webcams`. The first ten keys are what moonraker-obico sends; `stream_url`
-    and `snapshot_url` are ours and tell LAN viewers where the re-served stream lives."""
+    """One entry of `settings.webcams`, in the exact shape of Obico's DEFAULT_WEBCAM_SETTINGS plus our
+    two address keys. Deliberately no `stream_mode`/`stream_id`: with those absent Obico's web app and
+    mobile app take their "agent without video streaming" path and show the snapshot, which is what
+    a stock non-streaming agent gets. A mode without an id made the mobile app render nothing."""
     return {
         "name": name,
         "is_primary_camera": is_primary,
-        "is_nozzle_camera": False,
-        "stream_mode": "h264_transcode",
-        "stream_id": None,
-        "data_channel_available": False,
         "flipV": False,
         "flipH": False,
         "rotation": 0,
         "streamRatio": "16:9",
-        "stream_url": stream_url,
+        "stream_url": stream_url,      # ours: how LAN viewers reach the re-served stream
         "snapshot_url": snapshot_url,
     }
 

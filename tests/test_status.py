@@ -68,7 +68,8 @@ def test_error_state(detail):
 def test_message_and_settings():
     cam = webcam_entry(name="Printer", is_primary=True, stream_url="http://h:8081/cameras/0/stream",
                        snapshot_url="http://h:8081/cameras/0/snapshot")
-    assert cam["is_primary_camera"] is True and cam["stream_mode"] == "h264_transcode" and cam["stream_id"] is None
+    assert cam["is_primary_camera"] is True
+    assert "stream_mode" not in cam and "stream_id" not in cam  # Obico's "no video streaming" shape
     assert cam["streamRatio"] == "16:9" and cam["rotation"] == 0 and cam["flipH"] is False
     assert cam["stream_url"] == "http://h:8081/cameras/0/stream"
     settings = build_settings([cam])

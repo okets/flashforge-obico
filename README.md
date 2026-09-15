@@ -87,3 +87,18 @@ FF_HOST=… FF_SERIAL=… FF_CHECK_CODE=… .venv/bin/pytest -q -m live   # agai
 ```
 
 The live test reads status and grabs a camera frame. It never sends job commands.
+
+## Deployed at
+
+- Host `HV-Unraid` (10.0.0.2), service `flashforge_agent` in `/mnt/user/appdata/obico-server/docker-compose.yml`,
+  secrets in that directory's `.env`. Camera re-server on `http://10.0.0.2:8081/cameras/0/stream`.
+- Image `docker.io/hananv/flashforge-obico` is built on the Unraid host from a `git archive` of this repo
+  unpacked into `/mnt/user/appdata/flashforge-obico/build` (the Mac has no Docker daemon running):
+
+  ```bash
+  git archive HEAD | ssh root@HV-Unraid 'tar -x -C /mnt/user/appdata/flashforge-obico/build && \
+    cd /mnt/user/appdata/flashforge-obico/build && \
+    docker build -t docker.io/hananv/flashforge-obico:latest . && docker push docker.io/hananv/flashforge-obico:latest'
+  ssh root@HV-Unraid 'cd /mnt/user/appdata/obico-server && docker compose pull flashforge_agent && docker compose up -d flashforge_agent'
+  ```
+- Obico printer "Creator 5 Pro" (id 2), created from the Django shell, failure action *pause*.

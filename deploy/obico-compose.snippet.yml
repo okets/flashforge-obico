@@ -1,0 +1,28 @@
+# Append this service under `services:` in /mnt/user/appdata/obico-server/docker-compose.yml,
+# then add to that directory's .env:
+#   FF_SERIAL=<printer serial>   FF_CHECK_CODE=<LAN check code>   OBICO_AUTH_TOKEN=<printer token>
+# Optional overrides in .env: FF_HOST (default 10.0.0.10), PUBLIC_HOST (default 10.0.0.2),
+# FF_LOG_LEVEL (default INFO), CAMERA_URLS / CAMERA_NAMES for extra cameras.
+  flashforge_agent:
+    image: docker.io/hananv/flashforge-obico:latest
+    restart: unless-stopped
+    depends_on:
+      - web
+    ports:
+      - "8081:8081"
+    environment:
+      FF_HOST: '${FF_HOST-10.0.0.10}'
+      FF_SERIAL: '${FF_SERIAL}'
+      FF_CHECK_CODE: '${FF_CHECK_CODE}'
+      OBICO_URL: 'http://web:3334'
+      OBICO_AUTH_TOKEN: '${OBICO_AUTH_TOKEN}'
+      PUBLIC_HOST: '${PUBLIC_HOST-10.0.0.2}'
+      RESERVE_PORT: '8081'
+      CAMERA_URLS: '${CAMERA_URLS-}'
+      CAMERA_NAMES: '${CAMERA_NAMES-}'
+      LOG_LEVEL: '${FF_LOG_LEVEL-INFO}'
+    logging:
+      driver: json-file
+      options:
+        max-size: 1m
+        max-file: "5"

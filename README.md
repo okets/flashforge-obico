@@ -1,7 +1,89 @@
 # flashforge-obico
 
 An [Obico](https://www.obico.io/) agent for the FlashForge Creator 5 / 5 Pro in LAN-only mode.
-It feeds printer status and camera frames to a self-hosted Obico server and carries Obico's
-pause / resume / cancel commands back to the printer over the Creator 5 LAN API.
 
-Design: [docs/superpowers/specs/2026-09-15-flashforge-obico-agent-design.md](docs/superpowers/specs/2026-09-15-flashforge-obico-agent-design.md)
+It polls the printer's LAN API, reports status and print events to a self-hosted Obico server,
+posts a camera frame every ten seconds for failure detection, and carries Obico's pause, resume and
+cancel commands back to the printer. Obico decides whether a print is failing and what to do about
+it; this agent is only the bridge.
+
+Design: [docs/superpowers/specs/2026-09-15-flashforge-obico-agent-design.md](docs/superpowers/specs/2026-09-15-flashforge-obico-agent-design.md).
+Printer protocol: `docs/printers/flashforge-lan-api.md` in [OrcaMCP](https://github.com/okets/OrcaMCP).
+
+## The camera is single-client
+
+The printer's built-in MJPG-Streamer serves **one viewer at a time** and has no snapshot endpoint.
+This agent is that one viewer. It re-serves every camera it holds, to any number of clients, on
+port 8081:
+
+| URL | What |
+|---|---|
+| `http://<host>:8081/cameras/0/stream` | MJPEG stream of camera 0 (the primary, used for detection) |
+| `http://<host>:8081/cameras/0/snapshot` | Latest JPEG of camera 0 |
+| `http://<host>:8081/healthz` | `ok` |
+
+Point OrcaSlicer, browsers and anything else at these, never at the printer's port 8080 while the
+agent runs. The agent also publishes these URLs to Obico in the printer's webcam list
+(`settings.webcams[i].stream_url`), so a client that only knows the Obico server can discover them.
+
+## Configuration
+
+Everything is an environment variable.
+
+| Variable | Required | Default | Meaning |
+|---|---|---|---|
+| `FF_HOST` | yes | | Printer IP or hostname |
+| `FF_SERIAL` | yes | | Printer serial number |
+| `FF_CHECK_CODE` | yes | | LAN check code. **A credential**: never logged, never committed |
+| `OBICO_URL` | no | `http://web:3334` | Obico server base URL (the compose-internal name by default) |
+| `OBICO_AUTH_TOKEN` | for `run` | | The printer's Obico auth token. Also a credential |
+| `CAMERA_URLS` | no | printer's own camera | Comma-separated MJPEG stream URLs; first is primary |
+| `CAMERA_NAMES` | no | `Printer`, `Camera 2`… | Comma-separated names matching `CAMERA_URLS` |
+| `RESERVE_PORT` | no | `8081` | Camera re-server port; `0` disables it |
+| `PUBLIC_HOST` | if re-server on | | Host or IP that LAN clients use to reach the re-server |
+| `LOG_LEVEL` | no | `INFO` | |
+
+## Deploying next to a self-hosted Obico
+
+1. Build and push the image (linux/amd64):
+
+   ```bash
+   docker buildx build --platform linux/amd64 -t docker.io/hananv/flashforge-obico:latest --push .
+   ```
+
+2. Append the service in [deploy/obico-compose.snippet.yml](deploy/obico-compose.snippet.yml) to
+   Obico's `docker-compose.yml` and add `FF_SERIAL`, `FF_CHECK_CODE` and `OBICO_AUTH_TOKEN` to its `.env`.
+
+3. Get the printer token. Either link with the 6-digit code from Obico's "link printer" page:
+
+   ```bash
+   docker compose run --rm flashforge_agent link 123456
+   ```
+
+   or create the printer in Obico's Django shell and copy its `auth_token`.
+
+4. `docker compose up -d flashforge_agent` and watch `docker compose logs -f flashforge_agent` for
+   `connected to Obico`.
+
+Obico's per-printer setting "when a failure is detected" defaults to *pause the printer and notify
+me*; change it in Obico if you only want a notification.
+
+## Behaviour worth knowing
+
+- Poll cadence is 2 s while printing or paused, 5 s when idle. Three failed polls in a row mark the
+  printer Offline in Obico. A network drop never triggers a command.
+- Commands are idempotent and read back: after a pause the agent polls until the printer reports
+  paused; if it never does, Obico gets a printer event so you are told.
+- The agent never cancels on its own. Cancel only happens when you press it in the Obico app.
+- Pictures from secondary cameras are not posted; this Obico version stores only the primary
+  camera's. Secondary cameras are still re-served on `/cameras/<i>/stream`.
+
+## Development
+
+```bash
+uv venv --python 3.12 .venv && uv pip install --python .venv/bin/python -e '.[dev]'
+.venv/bin/pytest -q                     # no network needed
+FF_HOST=… FF_SERIAL=… FF_CHECK_CODE=… .venv/bin/pytest -q -m live   # against the real printer
+```
+
+The live test reads status and grabs a camera frame. It never sends job commands.

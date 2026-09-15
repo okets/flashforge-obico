@@ -139,19 +139,30 @@ long as the app is open, matching the reference agent's "viewing boost".
 
 ### 4.5 Camera
 
-- `MjpegSource` opens **one** persistent connection to the printer stream and keeps the latest
-  frame. It is the only thing that ever talks to port 8080. On error it reconnects with backoff
-  (1 s → 30 s).
-- Every **10 s** (1 s under viewing boost) the agent posts the latest frame to
-  `/api/v1/octo/pic/` with `is_primary_camera=true`, `camera_name`. Frames older than 15 s are not
-  posted (stale camera is worse than no frame for the detector).
-- The re-server on port **8081** exposes `/stream` (an MJPEG multipart to any number of clients)
-  and `/snapshot` (the latest JPEG). This is what OrcaSlicer's device page and a browser should
-  point at from now on, since the printer's own port refuses a second viewer.
+- `MjpegSource` opens **one** persistent connection to each camera stream and keeps the latest
+  frame. It is the only thing that ever talks to the printer's port 8080. On error it reconnects
+  with backoff (1 s → 30 s).
+- Every **10 s** (1 s under viewing boost) the agent posts the primary camera's latest frame to
+  `/api/v1/octo/pic/` with `is_primary_camera=true` and `camera_name`. Frames older than 15 s are
+  not posted (a stale frame is worse than none for the detector). Secondary cameras are **not**
+  posted: this Obico version discards non-primary pictures server-side.
+- The re-server on port **8081** exposes, for each camera `i` (0 = primary),
+  `/cameras/<i>/stream` (an MJPEG multipart to any number of clients) and `/cameras/<i>/snapshot`
+  (the latest JPEG). This is the full-frame-rate path for local viewers such as OrcaSlicer, since
+  the printer's own port refuses a second viewer.
+- **The agent advertises those addresses through Obico.** The `settings.webcams` list it sends on
+  connect follows moonraker-obico's `normalized_webcam_dict` (`name`, `is_primary_camera`,
+  `is_nozzle_camera`, `stream_mode`, `stream_id`, `flipV`, `flipH`, `rotation`, `streamRatio`) and
+  adds two keys of ours: `stream_url` and `snapshot_url`, pointing at the re-server as reachable
+  from the LAN (`http://<PUBLIC_HOST>:<RESERVE_PORT>/cameras/<i>/...`). Obico stores this list
+  verbatim and pushes it to every web client of the printer, so a client that knows only the
+  Obico server and the printer token discovers every camera and its local stream. OrcaSlicer's
+  Flashforge console is the first such client (companion change in the OrcaMCP repo, spec
+  `docs/superpowers/specs/2026-09-15-obico-camera-source-design.md` there).
 - Cameras are a **list** in configuration; the first is primary and feeds detection. Adding the
-  user's better camera later is a config change: a second `MjpegSource`, a second entry in the
-  `settings.webcams` list sent to Obico, and a second `/stream` path. If it becomes the detection
-  camera it moves to first position. No new modules.
+  user's better camera later is a config change: one more `MjpegSource`, one more entry in
+  `settings.webcams`, one more `/cameras/<i>/stream`. If it becomes the detection camera it moves
+  to first position. No new modules.
 
 ### 4.6 Hard faults
 
@@ -164,7 +175,7 @@ once per distinct code per run. Obico turns printer events into notifications.
 |---|---|
 | Printer unreachable | Offline to Obico after 3 polls; keep retrying; no commands. |
 | Obico unreachable | Keep polling the printer; websocket reconnects with exponential backoff capped at 5 min; queued messages bounded at 50, oldest dropped. |
-| Camera stream drops | Reconnect with backoff; stop posting frames until fresh ones exist. |
+| Camera stream drops | Reconnect with backoff; stop posting frames until fresh ones exist; the re-server keeps serving the last frame and closes client streams after 15 s without a new frame so viewers notice. |
 | Firmware returns a field in an unexpected type | That field is `null` for that poll; logged once at debug. |
 | Pause command does not take | Printer event `PRINTER_ERROR` so the user is alerted. |
 | Shared-token close code 4321 from Obico | Stop reconnecting and exit non-zero (another agent is using this token). |
@@ -189,6 +200,7 @@ All via environment variables, so the compose file is the whole configuration:
 | `CAMERA_URLS` | no | printer's `cameraStreamUrl` from `detail` | Comma-separated MJPEG stream URLs; first is primary. |
 | `CAMERA_NAMES` | no | `Printer` | Comma-separated names matching `CAMERA_URLS`. |
 | `RESERVE_PORT` | no | `8081` | Port of the camera re-server; `0` disables it. |
+| `PUBLIC_HOST` | yes if re-server on | — | Host/IP LAN clients use to reach the re-server (the Unraid LAN IP, `10.0.0.2`); used to build the advertised `stream_url`s. |
 | `LOG_LEVEL` | no | `INFO` | |
 
 `flashforge-obico link <6-digit code>` posts the code to `/api/v1/octo/verify/` and prints the
@@ -232,8 +244,11 @@ returned auth token once, for pasting into `.env`. Nothing is written to disk by
 
 - **Direct Obico protocol, not a Moonraker emulator.** A fake Moonraker plus the stock client would
   reuse maintained code but emulate a far larger API surface and add a second layer to debug.
-- **Agent owns the camera and re-serves it.** Forced by the single-client MJPG-Streamer; also
-  gives OrcaSlicer a stable camera URL.
+- **Agent owns the camera and re-serves it, and advertises the re-served URLs via Obico.** Forced
+  by the single-client MJPG-Streamer (verified: a second client is reset within ~10 ms, and there
+  is no snapshot action). Publishing the URLs in `settings.webcams` makes Obico the only thing a
+  viewer has to configure while keeping full-frame-rate MJPEG for local viewers. Multi-camera
+  *through* Obico would need WebRTC/Janus, which is out of scope.
 - **Snapshots only, no WebRTC.** Detection needs one frame per ten seconds; live video is a
   later, separate project.
 - **Cancel is accepted but only ever human-initiated.** Obico never auto-cancels; refusing the

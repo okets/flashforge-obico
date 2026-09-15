@@ -1,0 +1,24 @@
+[project]
+name = "flashforge-obico"
+version = "0.1.0"
+description = "Obico agent for the FlashForge Creator 5 / 5 Pro in LAN-only mode"
+readme = "README.md"
+requires-python = ">=3.12"
+dependencies = ["requests>=2.32", "websocket-client>=1.8"]
+
+[project.optional-dependencies]
+dev = ["pytest>=8"]
+
+[project.scripts]
+flashforge-obico = "flashforge_obico.__main__:main"
+
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+markers = ["live: talks to the real printer; needs FF_HOST, FF_SERIAL, FF_CHECK_CODE"]

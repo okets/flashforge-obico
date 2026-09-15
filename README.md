@@ -26,6 +26,11 @@ Point OrcaSlicer, browsers and anything else at these, never at the printer's po
 agent runs. The agent also publishes these URLs to Obico in the printer's webcam list
 (`settings.webcams[i].stream_url`), so a client that only knows the Obico server can discover them.
 
+The re-server answers with `Access-Control-Allow-Origin: *`, like the printer's own camera server
+does, so a browser page (OrcaSlicer's console) can read the stream and notice when it stops. It
+carries no credential; anything on the LAN can already view the printer's camera, and this relay
+keeps that boundary where it was. Do not expose port 8081 beyond the LAN.
+
 ## Configuration
 
 Everything is an environment variable.

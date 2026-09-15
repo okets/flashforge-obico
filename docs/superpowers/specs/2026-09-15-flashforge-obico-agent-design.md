@@ -151,9 +151,11 @@ long as the app is open, matching the reference agent's "viewing boost".
   (the latest JPEG). This is the full-frame-rate path for local viewers such as OrcaSlicer, since
   the printer's own port refuses a second viewer.
 - **The agent advertises those addresses through Obico.** The `settings.webcams` list it sends on
-  connect follows moonraker-obico's `normalized_webcam_dict` (`name`, `is_primary_camera`,
-  `is_nozzle_camera`, `stream_mode`, `stream_id`, `flipV`, `flipH`, `rotation`, `streamRatio`) and
-  adds two keys of ours: `stream_url` and `snapshot_url`, pointing at the re-server as reachable
+  connect uses exactly the shape of the server's `DEFAULT_WEBCAM_SETTINGS` (`name`,
+  `is_primary_camera`, `flipV`, `flipH`, `rotation`, `streamRatio`) and adds two keys of ours:
+  `stream_url` and `snapshot_url`, pointing at the re-server as reachable. It deliberately sends no
+  `stream_mode`/`stream_id`: with those absent both Obico clients take their "agent without video
+  streaming" path and show the snapshot; a mode without an id blanked the mobile app (found 2026-09-15),
   from the LAN (`http://<PUBLIC_HOST>:<RESERVE_PORT>/cameras/<i>/...`). Obico stores this list
   verbatim and pushes it to every web client of the printer, so a client that knows only the
   Obico server and the printer token discovers every camera and its local stream. OrcaSlicer's

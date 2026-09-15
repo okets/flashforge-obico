@@ -1,0 +1,86 @@
+"""A typed view of one `detail` reply from the printer."""
+from __future__ import annotations
+
+from dataclasses import dataclass
+from enum import Enum
+
+from .parsing import as_float, as_int, as_str
+
+
+class MachineState(str, Enum):
+    READY = "ready"
+    BUSY = "busy"
+    HEATING = "heating"
+    PRINTING = "printing"
+    PAUSED = "paused"
+    COMPLETED = "completed"
+    ERROR = "error"
+    CANCELLED = "cancelled"
+    UNKNOWN = "unknown"
+
+
+ACTIVE_STATES = frozenset({MachineState.PRINTING, MachineState.HEATING, MachineState.BUSY, MachineState.PAUSED})
+_ALIASES = {"cancel": "cancelled"}
+
+
+def parse_state(raw) -> MachineState:
+    text = as_str(raw).strip().lower()
+    text = _ALIASES.get(text, text)
+    try:
+        return MachineState(text)
+    except ValueError:
+        return MachineState.UNKNOWN
+
+
+@dataclass(frozen=True)
+class PrinterSnapshot:
+    state: MachineState
+    file_name: str
+    progress: float  # 0.0 to 1.0
+    duration_s: int
+    remaining_s: int
+    layer: int | None
+    total_layers: int | None
+    error_code: str
+    camera_stream_url: str
+    nozzle_temps: tuple[float, ...]
+    nozzle_targets: tuple[float, ...]
+    bed_temp: float | None
+    bed_target: float | None
+    chamber_temp: float | None
+    chamber_target: float | None
+    model: str
+    firmware: str
+
+    @property
+    def has_job(self) -> bool:
+        return self.file_name != "" and self.state in ACTIVE_STATES
+
+
+def _floats(value) -> tuple[float, ...]:
+    if not isinstance(value, list):
+        return ()
+    return tuple(f for f in (as_float(v) for v in value) if f is not None)
+
+
+def parse_snapshot(detail: dict) -> PrinterSnapshot:
+    progress = as_float(detail.get("printProgress")) or 0.0
+    return PrinterSnapshot(
+        state=parse_state(detail.get("status")),
+        file_name=as_str(detail.get("printFileName")),
+        progress=min(max(progress, 0.0), 1.0),
+        duration_s=as_int(detail.get("printDuration")) or 0,
+        remaining_s=int(as_float(detail.get("estimatedTime")) or 0),
+        layer=as_int(detail.get("printLayer")),
+        total_layers=as_int(detail.get("targetPrintLayer")),
+        error_code=as_str(detail.get("errorCode")),
+        camera_stream_url=as_str(detail.get("cameraStreamUrl")),
+        nozzle_temps=_floats(detail.get("nozzleTemps")),
+        nozzle_targets=_floats(detail.get("nozzleTargetTemps")),
+        bed_temp=as_float(detail.get("platTemp")),
+        bed_target=as_float(detail.get("platTargetTemp")),
+        chamber_temp=as_float(detail.get("chamberTemp")),
+        chamber_target=as_float(detail.get("chamberTargetTemp")),
+        model=as_str(detail.get("model")),
+        firmware=as_str(detail.get("firmwareVersion")),
+    )

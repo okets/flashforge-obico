@@ -39,6 +39,7 @@ def test_snapshot_and_health(served):
     source._store(JPEG)
     response = urllib.request.urlopen(base + "/cameras/0/snapshot", timeout=2)
     assert response.headers["Content-Type"] == "image/jpeg" and response.read() == JPEG
+    assert response.headers["Access-Control-Allow-Origin"] == "*"
     assert status_of(base + "/cameras/7/snapshot") == 404
     assert status_of(base + "/nothing") == 404
 
@@ -57,6 +58,7 @@ def test_stream_serves_two_clients_and_closes_when_stale(served):
     a = urllib.request.urlopen(base + "/cameras/0/stream", timeout=2)
     b = urllib.request.urlopen(base + "/cameras/0/stream", timeout=2)
     assert a.headers["Content-Type"].startswith("multipart/x-mixed-replace")
+    assert a.headers["Access-Control-Allow-Origin"] == "*"  # OrcaSlicer's console reads the stream with fetch()
     source._store(JPEG)
     for client in (a, b):
         headers, body = read_part(client)

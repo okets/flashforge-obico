@@ -22,6 +22,7 @@ PIC_INTERVAL_S, PIC_BOOST_INTERVAL_S, PIC_MAX_AGE_S = 10.0, 1.0, 15.0
 HEARTBEAT_S = 30.0
 OFFLINE_AFTER_FAILURES = 3
 READBACK_ATTEMPTS, READBACK_INTERVAL_S = 5, 1.0
+MAX_COMMAND_ATTEMPTS = 3   # send + read-back cycles before a command is declared not taken
 EXIT_OK, EXIT_SHARED_TOKEN = 0, 2
 COMMANDS = ("pause", "resume", "cancel")
 
@@ -40,6 +41,8 @@ class Agent:
         self._settings_sent = False
         self._last_sent_at = float("-inf")
         self._faults_reported: set[str] = set()
+        # A pause the printer ignored because it was still warming up; re-issued once extrusion starts.
+        self.pending_command: str | None = None
         self._commands: queue.Queue[str] = queue.Queue()
         self._command_lock = threading.Lock()
         self._command_thread: threading.Thread | None = None
@@ -48,16 +51,37 @@ class Agent:
     def poll_once(self) -> None:
         if not self._read_printer():
             return
-        now = self._clock()
+        self._publish(self._clock())
+        self._report_fault()
+        self._service_pending_command()
+
+    def _publish(self, now: float) -> None:
+        """Runs the tracker over the current snapshot and tells Obico about anything that changed."""
         events = self.tracker.observe(self._snapshot, now)
         new_text = obico_state_text(self._snapshot, self._state_text)
         changed = new_text != self._state_text or bool(events) or not self._settings_sent
         self._state_text = new_text
-        self._report_fault()
         if changed or now - self._last_sent_at >= HEARTBEAT_S:
             self._send_status(events[0] if events else None, now)
             for extra in events[1:]:
                 self._send_status(extra, now)
+
+    def _service_pending_command(self) -> None:
+        snapshot = self._snapshot
+        if self.pending_command is None or snapshot is None:
+            return
+        if not snapshot.has_job:
+            _logger.info("dropping pending %s: the job is over", self.pending_command)
+            self.pending_command = None
+            return
+        if snapshot.state is MachineState.PAUSED:
+            self.pending_command = None
+            return
+        if snapshot.warming_up:
+            return  # the firmware still ignores job control; keep waiting
+        cmd, self.pending_command = self.pending_command, None
+        _logger.info("printing has started; issuing the deferred %s", cmd)
+        self.execute_command(cmd)
 
     def _read_printer(self) -> bool:
         """Refreshes the snapshot. False while failures are still below the offline threshold."""
@@ -146,8 +170,16 @@ class Agent:
         return self._commands.unfinished_tasks == 0
 
     def execute_command(self, cmd: str) -> None:
-        """Forwards one Obico command to the printer and confirms it took by reading the state back."""
+        """Forwards one Obico command to the printer and confirms it took by reading the state back.
+
+        The printer is the authority: a command is only "done" when `detail` reports the new state.
+        Firmware 1.9.9 acknowledges a pause with code 0 during warm-up and then ignores it, so a
+        pause that does not take while the machine is still heating is kept as a pending intent and
+        re-issued the moment extrusion starts; a resume or cancel from the user drops that intent."""
         with self._command_lock:
+            if cmd in ("resume", "cancel") and self.pending_command is not None:
+                _logger.info("%s requested: dropping the pending %s", cmd, self.pending_command)
+                self.pending_command = None
             snapshot = self._snapshot
             if snapshot is None or not snapshot.has_job:
                 _logger.info("ignoring %s: no active job", cmd)
@@ -157,17 +189,46 @@ class Agent:
                 _logger.info("ignoring %s: the printer is already in that state", cmd)
                 return
             _logger.info("Obico asked to %s; forwarding to the printer", cmd)
+            outcome = self._attempt_command(cmd)
+            if outcome == "taken":
+                _logger.info("%s confirmed by the printer", cmd)
+            elif outcome == "job-over":
+                _logger.info("%s moot: the job ended meanwhile", cmd)
+            elif cmd == "pause" and self._snapshot is not None and self._snapshot.warming_up:
+                self.pending_command = "pause"
+                _logger.warning("the printer ignores pause while warming up; will pause once printing starts")
+                self.obico.post_printer_event(
+                    title="Pause deferred until printing starts", event_class="WARNING",
+                    text="The printer accepted the pause but ignores job control while it is still heating. "
+                         "The pause will be sent again automatically as soon as the first layer starts.")
+            else:
+                state = self._snapshot.state.value if self._snapshot else "unreachable"
+                _logger.error("%s did not take after %d attempts; printer reports %r", cmd, MAX_COMMAND_ATTEMPTS, state)
+                self.obico.post_printer_event(title=f"{cmd.capitalize()} did not take",
+                                              text=f"The printer was asked to {cmd} {MAX_COMMAND_ATTEMPTS} times "
+                                                   f"but still reports '{state}'.")
+            # Whatever happened, Obico gets the printer's real state now rather than at the next heartbeat.
+            self._publish(self._clock())
+
+    def _attempt_command(self, cmd: str) -> str:
+        """Sends `cmd` up to MAX_COMMAND_ATTEMPTS times, reading the state back after each.
+        Returns "taken", "job-over" or "not-taken"."""
+        for attempt in range(1, MAX_COMMAND_ATTEMPTS + 1):
             try:
                 getattr(self.printer, cmd)()
+                _logger.info("printer accepted %s (attempt %d, result code 0)", cmd, attempt)
             except FlashforgeError as exc:
-                self.obico.post_printer_event(title=f"{cmd.capitalize()} failed", text=str(exc))
-                return
-            if not self._read_back(cmd):
-                state = self._snapshot.state.value if self._snapshot else "unreachable"
-                self.obico.post_printer_event(title=f"{cmd.capitalize()} did not take",
-                                              text=f"The printer was asked to {cmd} but still reports '{state}'.")
+                _logger.warning("printer refused %s (attempt %d): %s", cmd, attempt, exc)
+                if attempt == MAX_COMMAND_ATTEMPTS:
+                    self.obico.post_printer_event(title=f"{cmd.capitalize()} failed", text=str(exc))
+                    return "not-taken"
+                continue
+            result = self._read_back(cmd)
+            if result != "not-taken":
+                return result
+        return "not-taken"
 
-    def _read_back(self, cmd: str) -> bool:
+    def _read_back(self, cmd: str) -> str:
         expected = {
             "pause": lambda s: s.state is MachineState.PAUSED,
             "resume": lambda s: s.has_job and s.state is not MachineState.PAUSED,
@@ -180,8 +241,10 @@ class Agent:
             except FlashforgeError:
                 continue
             if expected(self._snapshot):
-                return True
-        return False
+                return "taken"
+            if cmd != "cancel" and not self._snapshot.has_job:
+                return "job-over"
+        return "not-taken"
 
     def post_primary_frame(self) -> bool:
         if not self.cameras:

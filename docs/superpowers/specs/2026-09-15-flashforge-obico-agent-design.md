@@ -78,8 +78,12 @@ injectable HTTP/websocket layer, everything else is pure functions over dicts an
 - Poll `detail` every **2 s** while the printer reports printing, heating, busy or paused; every
   **5 s** when idle; these are the cadences OrcaMCP uses and the machine tolerates.
 - Every integer field goes through `as_int`. A field that cannot be parsed costs that field, not
-  the poll. `status` is lowercased and `cancel` is mapped to `cancelled`. Unknown status values
-  become `unknown` and are treated as *possibly printing*, never as idle.
+  the poll. `status` is lowercased; the firmware's short forms `pause` and `cancel` (verified on
+  1.9.9, 2026-09-15) are mapped to `paused` and `cancelled`. Unknown status values become `unknown`
+  and are treated as *possibly printing*, never as idle.
+- **Warm-up:** the firmware reports `printing` from the moment a job is accepted, while it is still
+  heating; `printDuration` and `printLayer` stay 0 until extrusion starts. `PrinterSnapshot.warming_up`
+  is that condition, and matters because the firmware ignores job control during it (below).
 - Three consecutive failed polls mark the printer **Offline** to Obico (an empty status dict, as
   the reference agent does). Offline is a connectivity fact, not a print failure; no command is
   ever sent because of it.
@@ -90,7 +94,7 @@ injectable HTTP/websocket layer, everything else is pure functions over dicts an
 |---|---|---|
 | `ready`, `completed`, `cancelled`, `error` (no active job) | `Operational` | `error` also sets `state.flags.error` and `state.error` from `errorCode`. |
 | `printing`, `heating`, `busy` with a `printFileName` | `Printing` | Heating counts as printing so Obico's session starts at job start. |
-| `paused` | `Paused` | |
+| `pause` (firmware 1.9.9's real string; `paused` also accepted) | `Paused` | |
 | `unknown`, or `busy` without a file | keep previous state | Do not flip to Operational on an unfamiliar value mid-print. |
 | unreachable (3 polls) | `Offline` | |
 
@@ -128,9 +132,17 @@ is "pause on failure". The agent:
   `jobCtl_cmd cancel`;
 - is idempotent: `pause` while already paused and `resume` while printing are no-ops; a command
   with no active job is logged and dropped;
-- **reads state back**: after sending, polls `detail` up to 5 times at 1 s and logs whether the
-  printer actually changed state; if it did not, posts a `PRINTER_ERROR` printer event so the
-  user is told the pause did not take;
+- **reads state back and retries**: after sending, polls `detail` up to 5 times at 1 s; if the
+  state has not changed, sends again, up to 3 attempts in all. The printer's `code: 0` reply is
+  an acknowledgement, not a confirmation: on 2026-09-15 a pause sent during warm-up was accepted
+  with code 0 and silently ignored, while the same command 20 s later, once extruding, took within
+  16 s. If the command still has not taken, a `PRINTER_ERROR` event tells the user, and the real
+  state is published to Obico immediately rather than at the next heartbeat;
+- **defers a pause the firmware ignored during warm-up**: when a pause does not take and the
+  snapshot is `warming_up`, the agent keeps it as a pending intent, posts one `WARNING` event
+  ("Pause deferred until printing starts"), and re-issues it from the poll loop the moment
+  `printDuration`/`printLayer` move off zero. A `resume` or `cancel` from the user, or the end of
+  the job, drops the intent;
 - never issues `cancel` on its own initiative. `cancel` is executed only because a human pressed
   it in the Obico app; Obico's failure action is pause or notify, never cancel.
 

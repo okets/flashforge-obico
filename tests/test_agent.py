@@ -111,7 +111,7 @@ def test_three_failures_mean_offline_and_never_a_command(detail):
 
 
 def test_pause_command_is_forwarded_and_read_back(detail):
-    printing = {**detail, "status": "printing", "printFileName": "a.gcode"}
+    printing = {**detail, "status": "printing", "printFileName": "a.gcode", "printDuration": 30, "printLayer": 3}
     paused = {**printing, "status": "paused"}
     agent, _ = make([printing, printing, paused])
     agent.poll_once()
@@ -119,17 +119,8 @@ def test_pause_command_is_forwarded_and_read_back(detail):
     assert agent.printer.commands == ["pause"] and agent.obico.events == []
 
 
-def test_pause_that_does_not_take_raises_a_printer_event(detail):
-    printing = {**detail, "status": "printing", "printFileName": "a.gcode"}
-    agent, _ = make([printing])
-    agent.poll_once()
-    agent.execute_command("pause")
-    assert agent.printer.commands == ["pause"]
-    assert agent.obico.events[0]["title"] == "Pause did not take"
-
-
 def test_printer_refusal_raises_a_printer_event(detail):
-    printing = {**detail, "status": "printing", "printFileName": "a.gcode"}
+    printing = {**detail, "status": "printing", "printFileName": "a.gcode", "printDuration": 30, "printLayer": 3}
     agent, _ = make([printing])
     agent.poll_once()
 
@@ -142,7 +133,7 @@ def test_printer_refusal_raises_a_printer_event(detail):
 
 
 def test_commands_are_idempotent_and_need_a_job(detail):
-    paused = {**detail, "status": "paused", "printFileName": "a.gcode"}
+    paused = {**detail, "status": "pause", "printFileName": "a.gcode", "printDuration": 30, "printLayer": 3}
     agent, _ = make([paused])
     agent.poll_once()
     agent.execute_command("pause")  # already paused
@@ -154,8 +145,8 @@ def test_commands_are_idempotent_and_need_a_job(detail):
 
 
 def test_server_messages_dispatch_commands_and_viewing(detail):
-    printing = {**detail, "status": "printing", "printFileName": "a.gcode"}
-    agent, _ = make([printing, {**printing, "status": "paused"}])
+    printing = {**detail, "status": "printing", "printFileName": "a.gcode", "printDuration": 30, "printLayer": 3}
+    agent, _ = make([printing, {**printing, "status": "pause"}])
     agent.poll_once()
     agent.handle_server_message({"remote_status": {"viewing": True}})
     assert agent.viewing is True
@@ -188,3 +179,86 @@ def test_run_exits_when_the_token_is_shared(detail):
     agent, _ = make([detail])
     agent.obico.shared_token_detected.set()
     assert agent.run(threading.Event()) == EXIT_SHARED_TOKEN
+
+
+# ── Job control: verified behaviour of firmware 1.9.9 on 2026-09-15 ────────────────────────────
+# The printer acknowledges a pause with code 0 during warm-up and then ignores it; only once
+# extrusion has begun does a pause take. These tests pin the agent's answer to that.
+
+def _printing(detail, **over):
+    base = {**detail, "status": "printing", "printFileName": "a.gcode", "printDuration": 30, "printLayer": 3}
+    base.update(over)
+    return base
+
+
+def test_pause_that_takes_on_first_readback(detail):
+    printing = _printing(detail)
+    paused = {**printing, "status": "pause"}                  # the firmware's real string
+    agent, _ = make([printing, printing, paused])
+    agent.poll_once()
+    agent.execute_command("pause")
+    assert agent.printer.commands == ["pause"] and agent.obico.events == []
+    assert agent.obico.sent[-1]["status"]["state"]["text"] == "Paused"   # status sent as soon as it took
+
+
+def test_pause_is_resent_when_the_first_attempt_does_not_take(detail):
+    printing = _printing(detail)
+    paused = {**printing, "status": "pause"}
+    # one attempt = 1 send + READBACK_ATTEMPTS polls; the second attempt sees the pause take
+    replies = [printing] + [printing] * 5 + [paused]
+    agent, _ = make(replies)
+    agent.poll_once()
+    agent.execute_command("pause")
+    assert agent.printer.commands == ["pause", "pause"] and agent.obico.events == []
+
+
+def test_pause_that_never_takes_while_really_printing_raises_one_event(detail):
+    printing = _printing(detail)
+    agent, _ = make([printing])
+    agent.poll_once()
+    agent.execute_command("pause")
+    assert agent.printer.commands == ["pause"] * 3                      # MAX_COMMAND_ATTEMPTS
+    assert [e["title"] for e in agent.obico.events] == ["Pause did not take"]
+    assert agent.obico.sent[-1]["status"]["state"]["text"] == "Printing"  # Obico told the truth right away
+
+
+def test_pause_during_warm_up_stays_pending_and_lands_when_printing_starts(detail):
+    warming = _printing(detail, printDuration=0, printLayer=0)
+    started = _printing(detail, printDuration=5, printLayer=1)
+    paused = {**started, "status": "pause"}
+    # attempts during warm-up: 3 sends x 5 polls all warming; then polls see printing start; the
+    # pending pause fires once and the read-back sees "pause"
+    replies = [warming] + [warming] * 16 + [started, paused]
+    agent, _ = make(replies)
+    agent.poll_once()
+    agent.execute_command("pause")
+    assert agent.printer.commands == ["pause"] * 3
+    assert agent.pending_command == "pause"
+    assert [e["title"] for e in agent.obico.events] == ["Pause deferred until printing starts"]
+    agent.poll_once()                       # still warming: nothing new sent
+    assert agent.printer.commands == ["pause"] * 3
+    agent.poll_once()                       # extrusion has started: the pending pause fires
+    assert agent.printer.commands == ["pause"] * 4
+    assert agent.pending_command is None
+    assert agent.tracker.paused is True
+
+
+def test_resume_or_cancel_clears_a_pending_pause(detail):
+    warming = _printing(detail, printDuration=0, printLayer=0)
+    agent, _ = make([warming])
+    agent.poll_once()
+    agent.execute_command("pause")
+    assert agent.pending_command == "pause"
+    agent.execute_command("resume")         # the user changed their mind: nothing to resume, intent dropped
+    assert agent.pending_command is None
+    assert agent.printer.commands.count("resume") == 0
+
+
+def test_job_end_clears_a_pending_pause(detail):
+    warming = _printing(detail, printDuration=0, printLayer=0)
+    agent, _ = make([warming] * 16 + [detail])   # 1 poll + 3 attempts x 5 read-backs, then the job is gone
+    agent.poll_once()
+    agent.execute_command("pause")
+    assert agent.pending_command == "pause"
+    agent.poll_once()                       # job gone
+    assert agent.pending_command is None

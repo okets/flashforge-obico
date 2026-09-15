@@ -20,7 +20,9 @@ class MachineState(str, Enum):
 
 
 ACTIVE_STATES = frozenset({MachineState.PRINTING, MachineState.HEATING, MachineState.BUSY, MachineState.PAUSED})
-_ALIASES = {"cancel": "cancelled"}
+# Firmware 1.9.9 reports the short forms; the long forms are kept so a future firmware that says
+# "paused" is not suddenly unknown. Verified on hardware 2026-09-15.
+_ALIASES = {"cancel": "cancelled", "pause": "paused"}
 
 
 def parse_state(raw) -> MachineState:
@@ -55,6 +57,14 @@ class PrinterSnapshot:
     @property
     def has_job(self) -> bool:
         return self.file_name != "" and self.state in ACTIVE_STATES
+
+    @property
+    def warming_up(self) -> bool:
+        """The firmware says "printing" from the moment a job is accepted, while it is still heating.
+        Nothing has been extruded until printDuration or printLayer moves off zero. The firmware also
+        ignores job-control commands during this phase (observed 2026-09-15)."""
+        return (self.has_job and self.state is not MachineState.PAUSED
+                and self.duration_s == 0 and not self.layer)
 
 
 def _floats(value) -> tuple[float, ...]:

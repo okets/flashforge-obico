@@ -47,3 +47,22 @@ def test_missing_fields_default(detail):
 def test_progress_is_clamped(detail):
     detail["printProgress"] = 1.7
     assert parse_snapshot(detail).progress == 1.0
+
+
+def test_firmware_short_state_names_are_recognised(detail):
+    # Firmware 1.9.9 reports "pause" and "cancel" (verified 2026-09-15); the long forms stay accepted.
+    for raw, expected in [("pause", MachineState.PAUSED), ("Pause ", MachineState.PAUSED),
+                          ("paused", MachineState.PAUSED), ("cancel", MachineState.CANCELLED),
+                          ("cancelled", MachineState.CANCELLED)]:
+        detail["status"] = raw
+        assert parse_snapshot(detail).state is expected, raw
+
+
+def test_warming_up_is_printing_with_no_progress_yet(detail):
+    detail.update(status="printing", printFileName="a.gcode", printDuration=0, printLayer=0, platTargetTemp=110)
+    s = parse_snapshot(detail)
+    assert s.has_job and s.warming_up
+    detail.update(printDuration=21, printLayer=3)
+    assert not parse_snapshot(detail).warming_up
+    detail.update(status="pause")
+    assert not parse_snapshot(detail).warming_up

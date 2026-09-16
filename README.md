@@ -66,18 +66,79 @@ Everything is an environment variable.
 | `PUBLIC_HOST` | if re-server on | | Host or IP that LAN clients use to reach the re-server |
 | `LOG_LEVEL` | no | `INFO` | |
 
-## Install
+## How it fits together
 
-You need a self-hosted [Obico server](https://github.com/TheSpaghettiDetective/obico-server)
-running from its `docker-compose.yml`, a Creator 5 / 5 Pro in LAN mode, and the printer's
-**serial number** and **check code** from its touchscreen (network / LAN-mode screen).
+```
+ your LAN
+ ┌──────────────────┐   HTTP, LAN API       ┌────────────────────┐   websocket + HTTP   ┌──────────────┐
+ │ Creator 5 / 5 Pro│◄─────────────────────►│  flashforge-obico  │◄────────────────────►│ Obico server │
+ │ LAN mode         │   camera (1 viewer)   │  (this container)  │   status, pictures,  │ (self-hosted)│
+ │ :8898  :8080     │──────────────────────►│  re-serves camera  │   pause/resume       │ :3334        │
+ └──────────────────┘                       │  phone console :8081│                      └──────┬───────┘
+                                            └─────────┬──────────┘                             │
+                                                      │ full-rate video, pause, light           │ app, web, alerts
+                                                      ▼                                         ▼
+                                                 your phone / OrcaMCP                   Obico app / Telegram / e-mail
+```
 
-1. **Register the printer in Obico.** In the Obico web UI add a printer and start the "link
-   printer" flow to get a 6-digit code, or create it from the server's Django shell and copy its
-   `auth_token`. You can exchange a 6-digit code for the token with the agent itself once the
-   service exists (step 4).
+The agent is the only thing that talks to the printer. It polls the printer's LAN API, holds the
+printer's single-viewer camera stream, posts a frame to Obico every ten seconds, tells Obico when a
+print starts, pauses, resumes or ends, and carries Obico's pause/resume back to the printer. Obico
+does the failure detection and the notifications. Nothing here needs the cloud.
 
-2. **Add the service.** Append the block from
+## Before you start
+
+### The printer
+
+1. **Switch the printer to LAN mode** on its touchscreen (network settings). Cloud features stop
+   working; that is the point of this project.
+2. **Note the serial number and the check code** shown on the same screen. The check code is the
+   printer's only credential: it grants full control, heaters included. Keep it out of chats,
+   screenshots and commits.
+3. **Give the printer a fixed address**: a DHCP reservation on your router. The agent reconnects by
+   address, and a printer that changes IP after a power cut silently disappears.
+4. **Check it answers** from the machine that will run the agent (replace the placeholders):
+
+   ```bash
+   curl -s -X POST http://<printer-ip>:8898/detail -H "Content-Type: application/json" \
+     -d '{"serialNumber":"<serial>","checkCode":"<check code>"}' | head -c 300
+   ```
+
+   You should see JSON with `"status": "ready"`. The printer's camera is at
+   `http://<printer-ip>:8080/?action=stream` and accepts **one viewer at a time**; once the agent
+   runs, close Flash Print's camera view and point everything else at the agent's port 8081.
+
+### The Obico server
+
+Install the self-hosted Obico server if you do not have one: follow
+[Obico's server guide](https://www.obico.io/docs/server-guides/) (it is a `git clone` plus
+`docker compose up -d`, usually on the same home server). Then:
+
+1. Open `http://<server-ip>:3334`, create the first account and log in.
+2. In `.env` of the Obico checkout, set your e-mail and, if you want them, Telegram or other
+   notification channels, exactly as Obico's guide describes; the agent needs nothing there.
+3. Install the Obico mobile app and point it at your server address. From home the LAN address
+   works; from anywhere else the simplest route is Tailscale on both the server and the phone
+   (a home connection behind carrier-grade NAT cannot forward ports at all).
+4. Register the printer so it gets an **auth token**. Either use the app's "link printer" flow,
+   which shows a 6-digit code you exchange in step 4 of the install below, or create it directly
+   in the server's shell and copy the token it prints:
+
+   ```bash
+   cd <obico checkout>
+   docker compose exec web python manage.py shell -c "
+   from secrets import token_hex
+   from app.models import Printer, User
+   u = User.objects.get(email='<your obico login email>')
+   p = Printer.objects.create(name='Creator 5 Pro', user=u, auth_token=token_hex(16))
+   print(p.auth_token)"
+   ```
+
+   The token is a credential too: whoever has it can pause and see your printer.
+
+## Install the agent
+
+1. **Add the service.** Append the block from
    [deploy/obico-compose.snippet.yml](deploy/obico-compose.snippet.yml) under `services:` in
    Obico's `docker-compose.yml`. It pulls the published image, so nothing is built:
 
@@ -97,17 +158,20 @@ running from its `docker-compose.yml`, a Creator 5 / 5 Pro in LAN mode, and the 
          RESERVE_PORT: '8081'
    ```
 
-3. **Add the secrets to Obico's `.env`** (same directory as the compose file):
+   `OBICO_URL` uses the compose-internal name `web`, so the agent reaches Obico without touching
+   the network at all; `PUBLIC_HOST` is the address your phone and slicer use to reach this server.
+
+2. **Add the secrets to Obico's `.env`** (same directory as the compose file):
 
    ```
    FF_HOST=<printer IP>
    FF_SERIAL=<printer serial>
    FF_CHECK_CODE=<printer check code>
-   OBICO_AUTH_TOKEN=<printer token from step 1>
+   OBICO_AUTH_TOKEN=<printer token>
    PUBLIC_HOST=<this server's LAN IP>
    ```
 
-4. **Start it** and watch for `connected to Obico`:
+3. **Start it** and watch for `connected to Obico` and `camera discovered from the printer`:
 
    ```bash
    docker compose pull flashforge_agent
@@ -115,13 +179,20 @@ running from its `docker-compose.yml`, a Creator 5 / 5 Pro in LAN mode, and the 
    docker compose logs -f flashforge_agent
    ```
 
-   If you only have a 6-digit link code, get the token with
-   `docker compose run --rm flashforge_agent link 123456`, put it in `.env`, and start again.
+4. **Only if you used a 6-digit link code**: exchange it for the token, put the token in `.env`,
+   and start again:
 
-5. **Open the phone console** at `http://<this server's LAN IP>:8081/` and, in Obico, set the
-   printer's failure action (it defaults to *pause the printer and notify me*).
+   ```bash
+   docker compose run --rm flashforge_agent link 123456
+   ```
 
-To upgrade, `docker compose pull flashforge_agent && docker compose up -d flashforge_agent`.
+5. **Check the result.** In Obico the printer shows *Operational* with a picture that refreshes.
+   The phone console is at `http://<this server's LAN IP>:8081/`. In Obico's printer settings,
+   leave the failure action on *pause the printer and notify me* or change it to notify only.
+   If you use OrcaMCP, put the same server URL and token into the printer's connection dialog and
+   its Device tab shows the camera and Obico's watch state.
+
+To upgrade: `docker compose pull flashforge_agent && docker compose up -d flashforge_agent`.
 Tags on Docker Hub follow the version in `pyproject.toml`; `latest` is the newest.
 
 ### Building the image yourself

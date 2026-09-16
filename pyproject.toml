@@ -1,6 +1,6 @@
 [project]
 name = "flashforge-obico"
-version = "0.2.3"
+version = "0.2.4"
 description = "Obico agent for the FlashForge Creator 5 / 5 Pro in LAN-only mode"
 readme = "README.md"
 requires-python = ">=3.12"

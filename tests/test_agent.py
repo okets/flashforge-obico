@@ -289,3 +289,37 @@ def test_viewing_boost_frames_are_posted_separately_only_while_viewing(detail):
     agent.viewing = True
     assert agent.post_boost_frame() is True
     assert agent.obico.pics[-1][1]["viewing_boost"] is True
+
+
+# ── Camera discovery must not depend on the printer being up when the agent starts ──────────────
+# After a power outage the server boots before the printer; an agent that only looks for the camera
+# once at startup then runs blind until someone restarts it (2026-09-16).
+
+class FakeReserver:
+    def __init__(self):
+        self.sources = []
+
+    def add_source(self, source):
+        self.sources.append(source)
+
+
+def test_camera_is_discovered_from_the_first_successful_poll(detail):
+    agent, _ = make([FlashforgeError("printer off"), FlashforgeError("printer off"), detail])
+    agent.reserver = FakeReserver()
+    agent.camera_factory = lambda url, name: MjpegSource(url, name=name, opener=lambda u: io.BytesIO(b""))
+    agent.poll_once()
+    agent.poll_once()
+    assert agent.cameras == []
+    agent.poll_once()  # the printer answers: its camera URL is now known
+    assert len(agent.cameras) == 1 and agent.cameras[0].url == detail["cameraStreamUrl"]
+    assert agent.reserver.sources == agent.cameras
+    agent.poll_once()  # discovered once only
+    assert len(agent.cameras) == 1
+
+
+def test_configured_cameras_are_not_replaced_by_discovery(detail):
+    cam = MjpegSource("http://configured/stream", name="Printer", opener=lambda u: io.BytesIO(b""))
+    agent, _ = make([detail], cameras=[cam])
+    agent.reserver = FakeReserver()
+    agent.poll_once()
+    assert agent.cameras == [cam]

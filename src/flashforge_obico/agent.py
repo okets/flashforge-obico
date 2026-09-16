@@ -33,6 +33,9 @@ class Agent:
                  sleep: Callable[[float], None] = time.sleep):
         self.config, self.printer, self.obico, self.cameras = config, printer, obico, cameras
         self._clock, self._monotonic, self._sleep = clock, monotonic, sleep
+        # Set by the CLI: where a camera discovered later is registered, and how one is built.
+        self.reserver = None
+        self.camera_factory = lambda url, name: MjpegSource(url, name=name)
         self.tracker = JobTracker()
         self.viewing = False
         self._snapshot: PrinterSnapshot | None = None
@@ -51,9 +54,24 @@ class Agent:
     def poll_once(self) -> None:
         if not self._read_printer():
             return
+        self._discover_camera()
         self._publish(self._clock())
         self._report_fault()
         self._service_pending_command()
+
+    def _discover_camera(self) -> None:
+        """Without configured cameras, the printer's own camera is taken from the first `detail` that
+        names one. Done here rather than at startup so an agent that boots while the printer is still
+        off (a power outage, say) picks the camera up as soon as the printer answers."""
+        snapshot = self._snapshot
+        if self.cameras or snapshot is None or not snapshot.camera_stream_url:
+            return
+        camera = self.camera_factory(snapshot.camera_stream_url, "Printer")
+        camera.start()
+        self.cameras.append(camera)
+        if self.reserver is not None:
+            self.reserver.add_source(camera)
+        _logger.info("camera discovered from the printer: %s", snapshot.camera_stream_url)
 
     def _publish(self, now: float) -> None:
         """Runs the tracker over the current snapshot and tells Obico about anything that changed."""

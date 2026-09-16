@@ -13,33 +13,25 @@ from .agent import Agent
 from .camera.mjpeg_source import MjpegSource
 from .camera.reserve import CameraReserver
 from .config import Config, ConfigError, load_config
-from .flashforge.client import FlashforgeClient, FlashforgeError
-from .flashforge.snapshot import parse_snapshot
+from .flashforge.client import FlashforgeClient
 from .logging_utils import configure_logging
 from .obico.server import ObicoError, ObicoServer, verify_link_code
 
 _logger = logging.getLogger("flashforge_obico")
 
 
-def _cameras(config: Config, printer: FlashforgeClient) -> list[MjpegSource]:
-    if config.cameras:
-        return [MjpegSource(camera.stream_url, name=camera.name) for camera in config.cameras]
-    try:
-        url = parse_snapshot(printer.detail()).camera_stream_url
-    except FlashforgeError as exc:
-        _logger.warning("could not read the printer's camera URL (%s); running without a camera until restart", exc)
-        return []
-    return [MjpegSource(url, name="Printer")] if url else []
-
-
 def run(config: Config) -> int:
+    _logger.info("flashforge-obico %s starting: printer %s, Obico %s", VERSION, config.ff_host, config.obico_url)
     printer = FlashforgeClient(config.ff_host, config.ff_serial, config.ff_check_code)
-    cameras = _cameras(config, printer)
-    reserver = CameraReserver(cameras, config.reserve_port) if config.reserve_port > 0 and cameras else None
+    # Configured cameras start now; the printer's own camera is discovered by the agent from the
+    # first successful poll, so a printer that is still off at boot is not a problem.
+    cameras = [MjpegSource(camera.stream_url, name=camera.name) for camera in config.cameras]
+    reserver = CameraReserver(cameras, config.reserve_port) if config.reserve_port > 0 else None
     holder: dict[str, Agent] = {}
     obico = ObicoServer(config.obico_url, config.obico_auth_token,
                         on_message=lambda message: holder["agent"].handle_server_message(message))
     agent = holder["agent"] = Agent(config, printer, obico, cameras)
+    agent.reserver = reserver
 
     stop = threading.Event()
     for sig in (signal.SIGINT, signal.SIGTERM):
@@ -50,13 +42,11 @@ def run(config: Config) -> int:
     if reserver:
         reserver.start()
     obico.start()
-    _logger.info("flashforge-obico %s: printer %s, Obico %s, %d camera(s)",
-                 VERSION, config.ff_host, config.obico_url, len(cameras))
     try:
         return agent.run(stop)
     finally:
         obico.stop()
-        for camera in cameras:
+        for camera in agent.cameras:
             camera.stop()
         if reserver:
             reserver.stop()

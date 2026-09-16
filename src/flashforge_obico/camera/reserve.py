@@ -39,6 +39,11 @@ class CameraReserver:
     def port(self) -> int:
         return self._server.server_address[1]
 
+    def add_source(self, source: MjpegSource) -> None:
+        """Registers a camera discovered after start-up; it is served at the next free index."""
+        self._sources.append(source)
+        _logger.info("camera re-server now serves %d camera(s)", len(self._sources))
+
     def start(self) -> None:
         self._thread = threading.Thread(target=self._server.serve_forever, name="reserver", daemon=True)
         self._thread.start()

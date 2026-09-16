@@ -2,6 +2,9 @@
 
 An [Obico](https://www.obico.io/) agent for the FlashForge Creator 5 / 5 Pro in LAN-only mode.
 
+**Image:** [`hananv/flashforge-obico` on Docker Hub](https://hub.docker.com/r/hananv/flashforge-obico) ·
+**Source:** [github.com/okets/flashforge-obico](https://github.com/okets/flashforge-obico)
+
 It polls the printer's LAN API, reports status and print events to a self-hosted Obico server,
 posts a camera frame every ten seconds for failure detection, and carries Obico's pause, resume and
 cancel commands back to the printer. Obico decides whether a print is failing and what to do about
@@ -63,30 +66,69 @@ Everything is an environment variable.
 | `PUBLIC_HOST` | if re-server on | | Host or IP that LAN clients use to reach the re-server |
 | `LOG_LEVEL` | no | `INFO` | |
 
-## Deploying next to a self-hosted Obico
+## Install
 
-1. Build and push the image (linux/amd64):
+You need a self-hosted [Obico server](https://github.com/TheSpaghettiDetective/obico-server)
+running from its `docker-compose.yml`, a Creator 5 / 5 Pro in LAN mode, and the printer's
+**serial number** and **check code** from its touchscreen (network / LAN-mode screen).
 
-   ```bash
-   docker buildx build --platform linux/amd64 -t docker.io/hananv/flashforge-obico:latest --push .
+1. **Register the printer in Obico.** In the Obico web UI add a printer and start the "link
+   printer" flow to get a 6-digit code, or create it from the server's Django shell and copy its
+   `auth_token`. You can exchange a 6-digit code for the token with the agent itself once the
+   service exists (step 4).
+
+2. **Add the service.** Append the block from
+   [deploy/obico-compose.snippet.yml](deploy/obico-compose.snippet.yml) under `services:` in
+   Obico's `docker-compose.yml`. It pulls the published image, so nothing is built:
+
+   ```yaml
+     flashforge_agent:
+       image: docker.io/hananv/flashforge-obico:latest
+       restart: unless-stopped
+       depends_on: [web]
+       ports: ["8081:8081"]
+       environment:
+         FF_HOST: '${FF_HOST-10.0.0.10}'
+         FF_SERIAL: '${FF_SERIAL}'
+         FF_CHECK_CODE: '${FF_CHECK_CODE}'
+         OBICO_URL: 'http://web:3334'
+         OBICO_AUTH_TOKEN: '${OBICO_AUTH_TOKEN}'
+         PUBLIC_HOST: '${PUBLIC_HOST-10.0.0.2}'
+         RESERVE_PORT: '8081'
    ```
 
-2. Append the service in [deploy/obico-compose.snippet.yml](deploy/obico-compose.snippet.yml) to
-   Obico's `docker-compose.yml` and add `FF_SERIAL`, `FF_CHECK_CODE` and `OBICO_AUTH_TOKEN` to its `.env`.
+3. **Add the secrets to Obico's `.env`** (same directory as the compose file):
 
-3. Get the printer token. Either link with the 6-digit code from Obico's "link printer" page:
-
-   ```bash
-   docker compose run --rm flashforge_agent link 123456
+   ```
+   FF_HOST=<printer IP>
+   FF_SERIAL=<printer serial>
+   FF_CHECK_CODE=<printer check code>
+   OBICO_AUTH_TOKEN=<printer token from step 1>
+   PUBLIC_HOST=<this server's LAN IP>
    ```
 
-   or create the printer in Obico's Django shell and copy its `auth_token`.
+4. **Start it** and watch for `connected to Obico`:
 
-4. `docker compose up -d flashforge_agent` and watch `docker compose logs -f flashforge_agent` for
-   `connected to Obico`.
+   ```bash
+   docker compose pull flashforge_agent
+   docker compose up -d flashforge_agent
+   docker compose logs -f flashforge_agent
+   ```
 
-Obico's per-printer setting "when a failure is detected" defaults to *pause the printer and notify
-me*; change it in Obico if you only want a notification.
+   If you only have a 6-digit link code, get the token with
+   `docker compose run --rm flashforge_agent link 123456`, put it in `.env`, and start again.
+
+5. **Open the phone console** at `http://<this server's LAN IP>:8081/` and, in Obico, set the
+   printer's failure action (it defaults to *pause the printer and notify me*).
+
+To upgrade, `docker compose pull flashforge_agent && docker compose up -d flashforge_agent`.
+Tags on Docker Hub follow the version in `pyproject.toml`; `latest` is the newest.
+
+### Building the image yourself
+
+```bash
+docker buildx build --platform linux/amd64 -t docker.io/<you>/flashforge-obico:latest --push .
+```
 
 ## Behaviour worth knowing
 

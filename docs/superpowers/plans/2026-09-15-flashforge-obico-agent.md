@@ -2332,7 +2332,7 @@ This is an operations task; every command runs over `ssh root@HV-Unraid` unless 
 cd /mnt/user/appdata/obico-server && docker exec obico-server-web-1 python manage.py shell -c "
 from secrets import token_hex
 from app.models import Printer, User
-u = User.objects.get(email='hananv@live.com')
+u = User.objects.get(email='<your obico login email>')
 p, created = Printer.objects.get_or_create(name='Creator 5 Pro', user=u, defaults={'auth_token': token_hex(16)})
 open('/tmp/token','w').write(p.auth_token)
 print('created' if created else 'existing', 'action_on_failure=', p.action_on_failure)

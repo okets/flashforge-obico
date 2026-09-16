@@ -247,17 +247,31 @@ class Agent:
         return "not-taken"
 
     def post_primary_frame(self) -> bool:
+        """The regular frame, every PIC_INTERVAL_S. Never flagged as a viewing frame: Obico writes a
+        viewing frame to one fixed path whose signed URL never changes (so clients keep showing a
+        cached picture) and skips failure detection on it. Regular frames during a print get unique
+        URLs and go to the detector, which is the whole point."""
+        return self._post_frame(viewing_boost=False)
+
+    def post_boost_frame(self) -> bool:
+        """An extra frame while someone is watching in the Obico app, as moonraker-obico does."""
+        if not self.viewing:
+            return False
+        return self._post_frame(viewing_boost=True)
+
+    def _post_frame(self, *, viewing_boost: bool) -> bool:
         if not self.cameras:
             return False
         latest = self.cameras[0].latest()
         if latest is None or self._monotonic() - latest[1] > PIC_MAX_AGE_S:
             return False
         return self.obico.post_pic(latest[0], camera_name=self.cameras[0].name, is_primary=True,
-                                   viewing_boost=self.viewing)
+                                   viewing_boost=viewing_boost)
 
     # ── main loop ──────────────────────────────────────────────────────────────────────────
     def run(self, stop: threading.Event) -> int:
         threading.Thread(target=self._pic_loop, args=(stop,), name="pics", daemon=True).start()
+        threading.Thread(target=self._boost_loop, args=(stop,), name="pics-boost", daemon=True).start()
         while not stop.is_set():
             if self.obico.shared_token_detected.is_set():
                 return EXIT_SHARED_TOKEN
@@ -268,4 +282,9 @@ class Agent:
     def _pic_loop(self, stop: threading.Event) -> None:
         while not stop.is_set():
             self.post_primary_frame()
-            stop.wait(PIC_BOOST_INTERVAL_S if self.viewing else PIC_INTERVAL_S)
+            stop.wait(PIC_INTERVAL_S)
+
+    def _boost_loop(self, stop: threading.Event) -> None:
+        while not stop.is_set():
+            self.post_boost_frame()
+            stop.wait(PIC_BOOST_INTERVAL_S)

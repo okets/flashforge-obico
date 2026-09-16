@@ -262,3 +262,30 @@ def test_job_end_clears_a_pending_pause(detail):
     assert agent.pending_command == "pause"
     agent.poll_once()                       # job gone
     assert agent.pending_command is None
+
+
+# ── Picture posting: what Obico does with a frame depends on the viewing_boost flag ──────────────
+# Server-side (octoprint_views.py): a frame posted with viewing_boost=True, or while no print is
+# running, is written to one fixed path whose signed URL never changes, and is NOT sent to the
+# detector. Only regular frames during a print get unique URLs and detection. So the regular
+# cadence must never carry the flag; viewing gets extra frames instead, as moonraker-obico does.
+
+def test_regular_frames_are_never_viewing_boost_even_while_viewing(detail):
+    clock = FakeClock()
+    cam = MjpegSource("http://x", name="Printer", opener=lambda url: io.BytesIO(b""), clock=clock)
+    agent, _ = make([detail], cameras=[cam], clock=clock)
+    cam._store(b"jpg")
+    agent.viewing = True
+    assert agent.post_primary_frame() is True
+    assert agent.obico.pics[-1][1]["viewing_boost"] is False
+
+
+def test_viewing_boost_frames_are_posted_separately_only_while_viewing(detail):
+    clock = FakeClock()
+    cam = MjpegSource("http://x", name="Printer", opener=lambda url: io.BytesIO(b""), clock=clock)
+    agent, _ = make([detail], cameras=[cam], clock=clock)
+    cam._store(b"jpg")
+    assert agent.post_boost_frame() is False          # nobody is watching
+    agent.viewing = True
+    assert agent.post_boost_frame() is True
+    assert agent.obico.pics[-1][1]["viewing_boost"] is True

@@ -154,10 +154,15 @@ long as the app is open, matching the reference agent's "viewing boost".
 - `MjpegSource` opens **one** persistent connection to each camera stream and keeps the latest
   frame. It is the only thing that ever talks to the printer's port 8080. On error it reconnects
   with backoff (1 s → 30 s).
-- Every **10 s** (1 s under viewing boost) the agent posts the primary camera's latest frame to
-  `/api/v1/octo/pic/` with `is_primary_camera=true` and `camera_name`. Frames older than 15 s are
-  not posted (a stale frame is worse than none for the detector). Secondary cameras are **not**
-  posted: this Obico version discards non-primary pictures server-side.
+- Every **10 s** the agent posts the primary camera's latest frame to `/api/v1/octo/pic/` with
+  `is_primary_camera=true`, `camera_name` and **`viewing_boost=false`, always**. While Obico says
+  someone is watching, a second loop posts *extra* frames every 1 s with `viewing_boost=true`, as
+  moonraker-obico does. The distinction matters server-side: a viewing frame (or any frame while
+  no print runs) is written to one fixed path whose signed URL never changes and is not sent to the
+  detector; only regular frames during a print get unique URLs and detection. Flagging the regular
+  cadence as viewing (the 0.1.0–0.1.3 behaviour) froze the picture in every client and switched
+  detection off whenever the user was looking (found 2026-09-16). Frames older than 15 s are not
+  posted. Secondary cameras are **not** posted: this Obico version discards non-primary pictures.
 - The re-server on port **8081** exposes, for each camera `i` (0 = primary),
   `/cameras/<i>/stream` (an MJPEG multipart to any number of clients) and `/cameras/<i>/snapshot`
   (the latest JPEG). This is the full-frame-rate path for local viewers such as OrcaSlicer, since

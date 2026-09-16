@@ -4,83 +4,134 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <meta name="color-scheme" content="dark">
+<meta name="theme-color" content="#1b2431">
 <title>Creator 5 Pro</title>
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%23f27a52' stroke-width='2'%3E%3Crect x='3' y='5' width='18' height='14' rx='2'/%3E%3Ccircle cx='12' cy='12' r='3.5'/%3E%3C/svg%3E">
 <style>
-  :root{--bg:#0b0e13;--panel:#151a22;--edge:#242b36;--text:#e8edf4;--muted:#8a94a4;--accent:#d8a74a;--warn:#e5484d;--good:#3ecf8e}
+  :root{
+    --bg:#1b2431; --panel:#232f3f; --panel-2:#2a3849; --line:#334458;
+    --text:#eef2f6; --text-2:#aab5c4; --text-3:#7f8ca0;
+    --act:#f27a52; --act-ink:#2a120a; --ok:#7fd1a8; --warn:#ff8f6b; --cool:#5b8fd9; --hot:#f26b3a;
+    --r:14px;
+  }
   *{box-sizing:border-box}
-  body{margin:0;padding:env(safe-area-inset-top) 0 env(safe-area-inset-bottom);background:var(--bg);color:var(--text);font:15px/1.4 -apple-system,system-ui,sans-serif}
-  main{max-width:560px;margin:0 auto;padding:12px 12px 24px;display:grid;gap:12px}
-  header{display:flex;justify-content:space-between;align-items:center;padding:4px 2px}
-  h1{font-size:18px;margin:0;font-weight:600}
-  .pill{font-size:12px;letter-spacing:.06em;text-transform:uppercase;padding:5px 10px;border-radius:999px;border:1px solid var(--edge);color:var(--muted)}
-  .pill[data-k="printing"]{border-color:var(--accent);color:var(--accent)}
-  .pill[data-k="paused"]{border-color:var(--warn);color:var(--warn)}
-  .pill[data-k="offline"],.pill[data-k="error"]{border-color:var(--warn);color:var(--warn)}
-  .card{background:var(--panel);border:1px solid var(--edge);border-radius:12px;overflow:hidden}
-  .cam{position:relative;aspect-ratio:4/3;background:#000}
+  html,body{margin:0;background:var(--bg);color:var(--text);font:15px/1.45 -apple-system,"SF Pro Text",system-ui,"Segoe UI",Roboto,sans-serif;-webkit-font-smoothing:antialiased}
+  body{padding:env(safe-area-inset-top) 0 env(safe-area-inset-bottom)}
+  main{max-width:600px;margin:0 auto;padding:14px 14px 28px;display:grid;gap:16px}
+  svg{width:20px;height:20px;stroke:currentColor;fill:none;stroke-width:1.75;stroke-linecap:round;stroke-linejoin:round;flex:none}
+
+  header{display:flex;align-items:center;justify-content:space-between;padding:2px 2px 0}
+  h1{margin:0;font-size:20px;font-weight:650;letter-spacing:-.01em}
+  .state{display:inline-flex;align-items:center;gap:8px;font-size:14px;color:var(--text-2)}
+  .state i{width:9px;height:9px;border-radius:50%;background:var(--text-3)}
+  .state[data-k="printing"] i{background:var(--act)} .state[data-k="printing"]{color:var(--text)}
+  .state[data-k="warming"] i{background:var(--hot)}
+  .state[data-k="paused"] i{background:var(--warn)} .state[data-k="paused"]{color:var(--warn)}
+  .state[data-k="ready"] i{background:var(--ok)}
+  .state[data-k="offline"] i,.state[data-k="error"] i{background:var(--warn)} .state[data-k="error"]{color:var(--warn)}
+
+  .cam{position:relative;aspect-ratio:4/3;background:#0d1219;border-radius:var(--r);overflow:hidden;box-shadow:0 10px 30px -18px rgba(0,0,0,.9)}
   .cam img{width:100%;height:100%;object-fit:contain;display:block}
-  .cam .off{position:absolute;inset:0;display:grid;place-items:center;color:var(--muted);font-size:13px;text-align:center;padding:16px}
-  .live{position:absolute;left:10px;top:10px;font-size:11px;letter-spacing:.1em;text-transform:uppercase;padding:4px 8px;border-radius:6px;background:rgba(0,0,0,.55);color:#fff}
-  .live::before{content:"";display:inline-block;width:6px;height:6px;border-radius:50%;background:var(--warn);margin-right:6px;animation:b 1.6s infinite}
-  @keyframes b{50%{opacity:.3}}
-  .job{padding:12px 14px;display:grid;gap:8px}
-  .file{font-weight:600;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
-  .bar{height:8px;background:var(--edge);border-radius:4px;overflow:hidden}
-  .bar i{display:block;height:100%;background:var(--accent);width:0;transition:width .6s}
-  .row{display:flex;justify-content:space-between;color:var(--muted);font-size:13px}
-  .btns{display:flex;gap:10px;padding:0 14px 14px}
-  button{flex:1;padding:14px;border-radius:10px;border:1px solid var(--edge);background:#1c232e;color:var(--text);font:600 16px system-ui}
-  button:disabled{opacity:.35}
-  button.primary{background:var(--accent);color:#1a1206;border-color:var(--accent)}
-  button#light{flex:0 0 auto;min-width:88px}
-  button#light.on{border-color:var(--good);color:var(--good)}
-  .note{padding:0 14px 12px;font-size:13px;color:var(--muted)}
-  .note[data-k="warn"]{color:var(--warn)}
-  .grid{display:grid;grid-template-columns:repeat(3,1fr);gap:1px;background:var(--edge)}
-  .grid div{background:var(--panel);padding:10px 12px}
-  .grid b{display:block;font-size:11px;color:var(--muted);text-transform:uppercase;letter-spacing:.06em;font-weight:500}
-  .grid span{font-variant-numeric:tabular-nums;font-size:15px}
-  .slots{display:flex;gap:8px;padding:12px 14px}
-  .slot{flex:1;border-radius:10px;padding:10px 6px;text-align:center;font-size:12px;border:1px solid var(--edge);background:#1c232e;color:var(--muted)}
-  .slot i{display:block;width:100%;height:10px;border-radius:5px;margin-bottom:6px;background:#2a3140}
+  .cam .off{position:absolute;inset:0;display:grid;place-items:center;color:var(--text-3);font-size:14px;text-align:center;padding:20px}
+  .live{position:absolute;left:12px;top:12px;display:inline-flex;align-items:center;gap:7px;padding:5px 9px;border-radius:8px;background:rgba(13,18,25,.62);backdrop-filter:blur(6px);color:#fff;font-size:12px;font-weight:600}
+  .live i{width:7px;height:7px;border-radius:50%;background:#fff;animation:pulse 1.8s ease-in-out infinite}
+  .band{position:absolute;left:0;right:0;bottom:0;padding:26px 12px 10px;background:linear-gradient(180deg,transparent,rgba(13,18,25,.85));display:none}
+  .band[data-on="1"]{display:block}
+  .band .track{height:4px;border-radius:2px;background:rgba(255,255,255,.22);overflow:hidden}
+  .band .fill{height:100%;width:0;background:var(--act);border-radius:2px;transition:width .8s ease}
+  .band .meta{display:flex;justify-content:space-between;margin-top:8px;font-size:13px;color:#fff}
+  .band .meta b{font-weight:650}
+
+  .job{display:grid;gap:4px;padding:0 2px}
+  .job .file{font-size:16px;font-weight:600;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+  .job .sub{color:var(--text-2);font-size:14px}
+
+  .actions{display:grid;grid-template-columns:1fr 1fr auto;gap:10px}
+  button{display:inline-flex;align-items:center;justify-content:center;gap:9px;min-height:52px;padding:0 16px;border-radius:12px;border:1px solid var(--line);background:var(--panel);color:var(--text);font:600 16px/1 inherit;cursor:pointer}
+  button:disabled{opacity:.38;cursor:default}
+  button.act{background:var(--act);border-color:var(--act);color:var(--act-ink)}
+  button.light[data-on="1"]{border-color:#e7c66a;color:#f3d989;background:rgba(231,198,106,.1)}
+  button:focus-visible{outline:2px solid #fff;outline-offset:2px}
+
+  .note{display:flex;gap:10px;align-items:flex-start;padding:12px 14px;border-radius:12px;background:var(--panel);color:var(--text-2);font-size:14px}
+  .note[data-k="warn"]{background:rgba(255,143,107,.12);color:#ffb59a}
+
+  section.temps{display:grid;gap:10px;padding:14px;border-radius:var(--r);background:var(--panel)}
+  .temp{display:grid;grid-template-columns:84px 1fr auto;align-items:center;gap:12px;font-size:14px}
+  .temp .name{display:flex;align-items:center;gap:8px;color:var(--text-2)}
+  .temp .meter{height:6px;border-radius:3px;background:var(--panel-2);position:relative;overflow:hidden}
+  .temp .meter i{position:absolute;left:0;top:0;bottom:0;border-radius:3px;background:var(--cool);transition:width .8s ease,background .8s ease}
+  .temp .meter em{position:absolute;top:-3px;bottom:-3px;width:2px;background:var(--text-2);opacity:0}
+  .temp .meter em[data-on="1"]{opacity:.9}
+  .temp .val{font-variant-numeric:tabular-nums;min-width:82px;text-align:right}
+  .temp .val small{color:var(--text-3);font-size:13px}
+
+  section.slots{display:grid;grid-template-columns:repeat(4,1fr);gap:10px}
+  .slot{display:grid;gap:8px;padding:12px 10px;border-radius:12px;background:var(--panel);text-align:center;font-size:13px;color:var(--text-3)}
+  .slot .chip{width:34px;height:34px;border-radius:50%;margin:0 auto;border:3px solid var(--line);background:var(--panel-2);position:relative}
   .slot.full{color:var(--text)}
-  footer{color:var(--muted);font-size:12px;text-align:center;padding:4px}
+  .slot.full .chip{border-color:rgba(255,255,255,.18)}
+  .slot .n{position:absolute;right:-6px;bottom:-6px;width:18px;height:18px;border-radius:50%;background:var(--bg);color:var(--text-2);font-size:11px;display:grid;place-items:center;border:1px solid var(--line)}
+
+  footer{display:flex;align-items:center;gap:8px;justify-content:center;color:var(--text-3);font-size:13px;padding:4px}
+  footer svg{width:16px;height:16px}
+
+  @keyframes pulse{50%{opacity:.35}}
+  @media (prefers-reduced-motion: reduce){ .live i{animation:none} .band .fill,.temp .meter i{transition:none} }
 </style>
 </head>
 <body>
 <main>
-  <header><h1 id="title">Creator 5 Pro</h1><span class="pill" id="pill">connecting</span></header>
+  <header>
+    <h1 id="title">Creator 5 Pro</h1>
+    <span class="state" id="state" data-k="offline"><i></i><span id="stateText">connecting</span></span>
+  </header>
 
-  <section class="card">
-    <div class="cam"><img id="cam" alt="Live camera"><span class="live" id="live" hidden>live</span><div class="off" id="camOff">Connecting to the camera…</div></div>
-  </section>
-
-  <section class="card">
-    <div class="job">
-      <div class="file" id="file">Idle</div>
-      <div class="bar"><i id="bar"></i></div>
-      <div class="row"><span id="layer"></span><span id="pct"></span><span id="time"></span></div>
+  <div class="cam">
+    <img id="cam" alt="Live view of the build plate">
+    <div class="off" id="camOff">Connecting to the camera…</div>
+    <span class="live" id="live" hidden><i></i>Live</span>
+    <div class="band" id="band">
+      <div class="track"><div class="fill" id="fill"></div></div>
+      <div class="meta"><span id="pct"></span><b id="left"></b></div>
     </div>
-    <div class="btns">
-      <button id="pause" class="primary" disabled>Pause</button>
-      <button id="resume" disabled>Resume</button>
-      <button id="light" disabled title="Chamber light">Light</button>
-    </div>
-    <div class="note" id="note" hidden></div>
-  </section>
+  </div>
 
-  <section class="card"><div class="grid" id="temps"></div></section>
-  <section class="card"><div class="slots" id="slots"></div></section>
+  <div class="job">
+    <div class="file" id="file">Idle</div>
+    <div class="sub" id="sub">Nothing is printing.</div>
+  </div>
 
-  <footer id="foot">flashforge-obico</footer>
+  <div class="actions">
+    <button id="pause" class="act" disabled>
+      <svg viewBox="0 0 24 24"><rect x="6" y="4" width="4" height="16" rx="1"/><rect x="14" y="4" width="4" height="16" rx="1"/></svg>Pause
+    </button>
+    <button id="resume" disabled>
+      <svg viewBox="0 0 24 24"><path d="M7 4.5v15l12-7.5z"/></svg>Resume
+    </button>
+    <button id="light" class="light" disabled aria-label="Chamber light">
+      <svg viewBox="0 0 24 24"><path d="M9 18h6M10 21h4M12 3a6 6 0 0 1 3.6 10.8c-.6.5-.9 1.1-1 1.9H9.4c-.1-.8-.4-1.4-1-1.9A6 6 0 0 1 12 3z"/></svg>
+    </button>
+  </div>
+
+  <div class="note" id="note" hidden><svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="M12 8v5M12 16h.01"/></svg><span id="noteText"></span></div>
+
+  <section class="temps" id="temps"></section>
+  <section class="slots" id="slots"></section>
+
+  <footer id="foot"><svg viewBox="0 0 24 24"><path d="M12 3l7 3v5c0 5-3.5 8.5-7 10-3.5-1.5-7-5-7-10V6z"/><path d="M9.5 12l1.8 1.8L15 10"/></svg><span id="footText">Connecting to the agent…</span></footer>
 </main>
+
 <script>
 (function(){
   var $ = function(id){ return document.getElementById(id); };
-  var fmt = function(s){ s = Math.max(0, Math.round(s||0)); var h = Math.floor(s/3600), m = Math.floor(s%3600/60); return h ? h+"h "+m+"m" : m+"m"; };
-  var t1 = function(v){ return (v === null || v === undefined) ? "–" : Math.round(v); };
+  var ICON_THERMO = '<svg viewBox="0 0 24 24"><path d="M10 14.5V5a2 2 0 1 1 4 0v9.5a3.5 3.5 0 1 1-4 0z"/></svg>';
+  var ICON_BED    = '<svg viewBox="0 0 24 24"><path d="M3 15h18M5 15v3M19 15v3M8 11c0-1.5 1-1.5 1-3s-1-1.5-1-3M12 11c0-1.5 1-1.5 1-3s-1-1.5-1-3M16 11c0-1.5 1-1.5 1-3s-1-1.5-1-3"/></svg>';
+  var ICON_BOX    = '<svg viewBox="0 0 24 24"><path d="M4 8l8-4 8 4v8l-8 4-8-4z"/><path d="M4 8l8 4 8-4M12 12v8"/></svg>';
+  var fmt = function(s){ s = Math.max(0, Math.round(s||0)); var h = Math.floor(s/3600), m = Math.floor(s%3600/60); return h ? h+" h "+m+" min" : m+" min"; };
+  var num = function(v){ return (v === null || v === undefined) ? "–" : Math.round(v); };
 
-  /* ── camera: a plain <img> on the MJPEG stream; a frozen picture is detected by fingerprinting
+  /* ── camera: a plain <img> on the MJPEG stream. A frozen picture is detected by fingerprinting
         the frame on screen every 5 s (same origin, so the canvas is readable) and reconnected. ── */
   var cam = $("cam"), canvas = document.createElement("canvas"), lastPrint = null, lastChange = Date.now(), camUrl = null;
   function connectCamera(url){
@@ -88,9 +139,9 @@
     $("live").hidden = true; $("camOff").hidden = false; $("camOff").textContent = "Connecting to the camera…";
     cam.src = url + "?t=" + Date.now();
   }
-  cam.onload = function(){ $("camOff").hidden = true; };   /* single images only; an MJPEG <img> never fires load */
+  cam.onload  = function(){ $("camOff").hidden = true; };   /* single frames; an MJPEG <img> may never fire load */
+  cam.onerror = function(){ $("live").hidden = true; $("camOff").hidden = false; $("camOff").textContent = "The camera is not answering. Retrying…"; };
   setInterval(function(){ if (camUrl && cam.naturalWidth) $("camOff").hidden = true; }, 500);
-  cam.onerror = function(){ $("live").hidden = true; $("camOff").hidden = false; $("camOff").textContent = "Camera unavailable — retrying…"; };
   setInterval(function(){
     if (!camUrl || !cam.naturalWidth) return;
     var w = cam.naturalWidth, h = cam.naturalHeight;
@@ -98,57 +149,84 @@
     var ctx = canvas.getContext("2d", { willReadFrequently:true }); ctx.drawImage(cam, 0, 0);
     var d = ctx.getImageData(0, 0, w, h).data, hash = 2166136261 ^ d.length;
     for (var i = 0; i < d.length; i += 389){ hash ^= d[i]; hash = (hash * 16777619) >>> 0; }
-    if (hash !== lastPrint){ lastPrint = hash; lastChange = Date.now(); $("live").hidden = false; $("camOff").hidden = true; }
+    if (hash !== lastPrint){ lastPrint = hash; lastChange = Date.now(); $("live").hidden = false; }
     else if (Date.now() - lastChange > 15000) connectCamera(camUrl);
   }, 5000);
 
-  /* ── status ── */
+  /* ── temperatures as heat bars: fill = current over the hotter of current and target, colour
+        slides from cool to hot; the thin marker is the target. ── */
+  var MAX = { tool: 300, bed: 120, chamber: 70 };
+  function tempRow(icon, name, cur, tgt, kind){
+    var max = MAX[kind], c = cur || 0, pct = Math.min(100, c / max * 100), heat = Math.min(1, c / max);
+    var col = "color-mix(in srgb, var(--hot) " + Math.round(heat*100) + "%, var(--cool))";
+    var marker = tgt > 0 ? '<em data-on="1" style="left:' + Math.min(100, tgt/max*100) + '%"></em>' : '<em></em>';
+    var target = tgt > 0 ? ' <small>/ ' + num(tgt) + '</small>' : '';
+    return '<div class="temp"><span class="name">' + icon + name + '</span>' +
+           '<span class="meter"><i style="width:' + pct + '%;background:' + col + '"></i>' + marker + '</span>' +
+           '<span class="val">' + num(cur) + '°' + target + '</span></div>';
+  }
+
   var busy = false, lightOn = false;
   function render(st){
     var p = st.printer;
     $("title").textContent = (p && p.model) || "Creator 5 Pro";
     var k = !st.connected ? "offline" : p.error_code ? "error" : p.paused ? "paused" : p.warming_up ? "warming" : p.has_job ? "printing" : "ready";
-    $("pill").textContent = k === "warming" ? "warming up" : k; $("pill").dataset.k = k;
+    $("state").dataset.k = k;
+    $("stateText").textContent = { offline:"Printer not reachable", error:"Printer error", paused:"Paused", warming:"Warming up", printing:"Printing", ready:"Ready" }[k];
     if (st.camera && st.camera !== camUrl) connectCamera(st.camera);
-    if (!p){ $("light").disabled = true; $("file").textContent = "Printer not reachable"; $("bar").style.width = "0"; $("layer").textContent = $("pct").textContent = $("time").textContent = ""; $("pause").disabled = $("resume").disabled = true; return; }
-    $("file").textContent = p.has_job ? (p.file || "Printing") : "Idle";
-    $("bar").style.width = (p.has_job ? p.progress*100 : 0) + "%";
-    $("pct").textContent = p.has_job ? Math.round(p.progress*100) + "%" : "";
-    $("layer").textContent = p.has_job && p.total_layers ? "layer " + (p.layer||0) + " / " + p.total_layers : "";
-    $("time").textContent = p.has_job ? (p.warming_up ? "warming up" : fmt(p.duration_s) + " · " + fmt(p.remaining_s) + " left") : "";
+
+    if (!p){
+      $("file").textContent = "Printer not reachable"; $("sub").textContent = "The agent is polling; the page fills in when it answers.";
+      $("band").dataset.on = "0"; $("pause").disabled = $("resume").disabled = $("light").disabled = true;
+      return;
+    }
+    var printing = p.has_job;
+    $("band").dataset.on = printing ? "1" : "0";
+    $("fill").style.width = (printing ? p.progress*100 : 0) + "%";
+    $("pct").textContent = printing ? Math.round(p.progress*100) + "%" : "";
+    $("left").textContent = printing ? (p.warming_up ? "warming up" : fmt(p.remaining_s) + " left") : "";
+    $("file").textContent = printing ? (p.file || "Printing") : "Idle";
+    $("sub").textContent = printing
+      ? (p.total_layers ? "Layer " + (p.layer||0) + " of " + p.total_layers + ", " : "") + fmt(p.duration_s) + " elapsed"
+      : "Nothing is printing.";
+
     $("pause").disabled = busy || !p.can_pause; $("resume").disabled = busy || !p.can_resume;
-    $("light").disabled = busy; $("light").className = p.light_on ? "on" : ""; $("light").textContent = p.light_on ? "Light on" : "Light off";
-    lightOn = !!p.light_on;
+    $("light").disabled = busy; $("light").dataset.on = p.light_on ? "1" : "0"; lightOn = !!p.light_on;
+    $("light").setAttribute("aria-label", p.light_on ? "Chamber light is on. Turn it off" : "Chamber light is off. Turn it on");
+
     var note = $("note"), pending = st.obico.pending_command;
-    if (pending){ note.hidden = false; note.dataset.k = "warn"; note.textContent = "Pause requested: the printer ignores it while warming up; it will pause when the first layer starts."; }
-    else if (p.error_code){ note.hidden = false; note.dataset.k = "warn"; note.textContent = "Printer error " + p.error_code; }
+    if (pending){ note.hidden = false; note.dataset.k = "warn"; $("noteText").textContent = "Pause requested. The printer ignores it while warming up, so it will pause as soon as the first layer starts."; }
+    else if (p.error_code){ note.hidden = false; note.dataset.k = "warn"; $("noteText").textContent = "The printer reports error " + p.error_code + "."; }
+    else if (p.door_open){ note.hidden = false; note.dataset.k = ""; $("noteText").textContent = "The door is open."; }
     else note.hidden = true;
-    var T = p.temperatures, cells = "";
-    T.nozzles.forEach(function(n){ cells += "<div><b>Tool " + n.tool + "</b><span>" + t1(n.current) + " / " + t1(n.target) + " °C</span></div>"; });
-    cells += "<div><b>Bed</b><span>" + t1(T.bed.current) + " / " + t1(T.bed.target) + " °C</span></div>";
-    cells += "<div><b>Chamber</b><span>" + t1(T.chamber.current) + " / " + t1(T.chamber.target) + " °C</span></div>";
-    $("temps").innerHTML = cells;
-    $("slots").innerHTML = (p.slots.length ? p.slots : [1,2,3,4].map(function(i){ return {slot_id:i}; })).map(function(s){
-      return '<div class="slot' + (s.has_filament ? ' full' : '') + '"><i style="background:' + (s.has_filament && s.color ? s.color : '#2a3140') + '"></i>' + (s.has_filament ? (s.material || "loaded") : "empty") + '</div>';
+
+    var T = p.temperatures, rows = "";
+    T.nozzles.forEach(function(n){ rows += tempRow(ICON_THERMO, "Tool " + (n.tool + 1), n.current, n.target, "tool"); });
+    rows += tempRow(ICON_BED, "Bed", T.bed.current, T.bed.target, "bed");
+    rows += tempRow(ICON_BOX, "Chamber", T.chamber.current, T.chamber.target, "chamber");
+    $("temps").innerHTML = rows;
+
+    var slots = p.slots.length ? p.slots : [1,2,3,4].map(function(i){ return { slot_id:i }; });
+    $("slots").innerHTML = slots.map(function(s){
+      var color = s.has_filament && s.color ? s.color : "";
+      return '<div class="slot' + (s.has_filament ? ' full' : '') + '"><span class="chip"' + (color ? ' style="background:' + color + '"' : '') + '><span class="n">' + s.slot_id + '</span></span>' +
+             (s.has_filament ? (s.material || "Loaded") : "Empty") + '</div>';
     }).join("");
-    $("foot").textContent = "flashforge-obico " + st.version + " · Obico " + (st.obico.connected ? "connected" : "disconnected") + (p.light_on ? " · light on" : "") + (p.door_open ? " · door open" : "");
+
+    $("footText").textContent = (st.obico.connected ? "Watched by Obico." : "Obico is not connected.") + " Agent " + st.version;
   }
   function poll(){
     fetch("/api/status", { cache:"no-store" }).then(function(r){ return r.json(); }).then(render)
-      .catch(function(){ $("pill").textContent = "agent unreachable"; $("pill").dataset.k = "offline"; });
+      .catch(function(){ $("state").dataset.k = "offline"; $("stateText").textContent = "Agent not reachable"; });
   }
-  function job(action){
-    busy = true; $("pause").disabled = $("resume").disabled = true;
-    fetch("/api/job", { method:"POST", headers:{"Content-Type":"application/json"}, body: JSON.stringify({ action: action }) })
-      .catch(function(){}).then(function(){ setTimeout(function(){ busy = false; poll(); }, 1500); });
+  function post(path, body, settleMs){
+    busy = true; $("pause").disabled = $("resume").disabled = $("light").disabled = true;
+    fetch(path, { method:"POST", headers:{"Content-Type":"application/json"}, body: JSON.stringify(body) })
+      .catch(function(){}).then(function(){ setTimeout(function(){ busy = false; poll(); }, settleMs); });
   }
-  $("light").onclick = function(){
-    busy = true; $("light").disabled = true;
-    fetch("/api/light", { method:"POST", headers:{"Content-Type":"application/json"}, body: JSON.stringify({ on: !lightOn }) })
-      .catch(function(){}).then(function(){ setTimeout(function(){ busy = false; poll(); }, 800); });
-  };
-  $("pause").onclick = function(){ job("pause"); };
-  $("resume").onclick = function(){ job("resume"); };
+  $("pause").onclick  = function(){ post("/api/job", { action:"pause" }, 1500); };
+  $("resume").onclick = function(){ post("/api/job", { action:"resume" }, 1500); };
+  $("light").onclick  = function(){ post("/api/light", { on: !lightOn }, 800); };
   poll(); setInterval(poll, 2000);
 })();
 </script>

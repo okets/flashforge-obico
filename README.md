@@ -31,6 +31,21 @@ does, so a browser page (OrcaSlicer's console) can read the stream and notice wh
 carries no credential; anything on the LAN can already view the printer's camera, and this relay
 keeps that boundary where it was. Do not expose port 8081 beyond the LAN.
 
+## The phone console
+
+The same port serves a small page for watching a print from a phone at home:
+
+| URL | What |
+|---|---|
+| `http://<host>:8081/` | Live camera, state, progress, temperatures, material slots, **Pause / Resume / Light** |
+| `http://<host>:8081/api/status` | The JSON behind it |
+| `POST /api/job` `{"action": "pause"\|"resume"}` | Same retry / read-back / warm-up-deferral path as an Obico command |
+| `POST /api/light` `{"on": true\|false}` | Chamber light |
+
+There is deliberately no login: it is for the LAN (or the tailnet, which is the same thing), it
+never touches heaters, and pausing a print is a nuisance if abused rather than a hazard. Cancel is
+not offered here on purpose. Do not expose the port beyond the LAN.
+
 ## Configuration
 
 Everything is an environment variable.

@@ -64,3 +64,30 @@ def test_stream_serves_two_clients_and_closes_when_stale(served):
         headers, body = read_part(client)
         assert headers["content-type"] == "image/jpeg" and body == JPEG
     assert a.read() in (b"", b"\r\n")  # no new frames: the server ends the response after stale_after_s
+
+
+def test_added_routes_dispatch_get_and_post_and_404_otherwise(served):
+    source, base = served
+    server = None
+    # reach the server object through the fixture's closure is not possible; build a second one
+    server = CameraReserver([], port=0, host="127.0.0.1")
+    seen = {}
+    server.add_route("GET", r"^/api/status$", lambda m, body: (200, "application/json", b'{"ok":true}'))
+
+    def job(match, body):
+        seen["body"] = body
+        return 202, "application/json", b'{"accepted":true}'
+    server.add_route("POST", r"^/api/job$", job)
+    server.add_route("GET", r"^/$", lambda m, body: (200, "text/html; charset=utf-8", b"<html>console</html>"))
+    server.start()
+    try:
+        b2 = f"http://127.0.0.1:{server.port}"
+        assert urllib.request.urlopen(b2 + "/api/status", timeout=2).read() == b'{"ok":true}'
+        req = urllib.request.Request(b2 + "/api/job", data=b'{"action":"pause"}', method="POST")
+        r = urllib.request.urlopen(req, timeout=2)
+        assert r.status == 202 and seen["body"] == b'{"action":"pause"}'
+        assert b"console" in urllib.request.urlopen(b2 + "/", timeout=2).read()
+        assert status_of(b2 + "/nothing") == 404
+        assert status_of(b2 + "/cameras/0/snapshot") == 404  # no cameras on this server
+    finally:
+        server.stop()

@@ -53,6 +53,9 @@ class FlashforgeClient:
     def cancel(self) -> None:
         self._job_command("cancel")
 
+    def set_light(self, on: bool) -> None:
+        self._post("control", {"payload": {"cmd": "lightControl_cmd", "args": {"status": "open" if on else "close"}}})
+
     def _job_command(self, action: str) -> None:
         self._post("control", {"payload": {"cmd": "jobCtl_cmd", "args": {"jobID": "", "action": action}}})
 

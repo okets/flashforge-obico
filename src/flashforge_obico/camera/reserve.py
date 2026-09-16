@@ -1,12 +1,15 @@
-"""Fans a camera's frames out to any number of HTTP clients.
+"""The agent's HTTP server: fans camera frames out to any number of clients, and hosts the small
+phone console next to them.
 
-The printer's own MJPEG server allows exactly one, so this is what every local viewer (OrcaSlicer,
-a browser) should point at.
+The printer's own MJPEG server allows exactly one viewer, so this is what every local viewer
+(OrcaSlicer, a browser) should point at.
 
-Routes:
+Built-in routes:
   GET /cameras/<i>/stream    multipart/x-mixed-replace, boundary "flashforgeobico"
   GET /cameras/<i>/snapshot  image/jpeg (503 before the first frame, 404 for an unknown camera)
   GET /healthz               "ok"
+Further routes are added with `add_route`; a handler gets the regex match and the request body and
+returns (status, content type, body bytes).
 """
 from __future__ import annotations
 
@@ -14,7 +17,7 @@ import logging
 import re
 import threading
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
-from typing import Sequence
+from typing import Callable, Sequence
 
 from .mjpeg_source import MjpegSource
 
@@ -23,6 +26,7 @@ _logger = logging.getLogger(__name__)
 BOUNDARY = b"flashforgeobico"
 _ROUTE = re.compile(r"^/cameras/(\d+)/(stream|snapshot)$")
 DEFAULT_STALE_AFTER_S = 15.0
+RouteHandler = Callable[[re.Match, bytes], tuple[int, str, bytes]]
 
 
 class CameraReserver:
@@ -30,6 +34,7 @@ class CameraReserver:
                  stale_after_s: float = DEFAULT_STALE_AFTER_S, host: str = "0.0.0.0"):
         self._sources = list(sources)
         self._stale_after = stale_after_s
+        self._routes: list[tuple[str, re.Pattern, RouteHandler]] = []
         self._stopping = threading.Event()
         self._server = ThreadingHTTPServer((host, port), self._handler_class())
         self._server.daemon_threads = True
@@ -43,6 +48,9 @@ class CameraReserver:
         """Registers a camera discovered after start-up; it is served at the next free index."""
         self._sources.append(source)
         _logger.info("camera re-server now serves %d camera(s)", len(self._sources))
+
+    def add_route(self, method: str, pattern: str, handler: RouteHandler) -> None:
+        self._routes.append((method.upper(), re.compile(pattern), handler))
 
     def start(self) -> None:
         self._thread = threading.Thread(target=self._server.serve_forever, name="reserver", daemon=True)
@@ -68,12 +76,29 @@ class CameraReserver:
                 if path == "/healthz":
                     return self._send(200, b"ok", "text/plain")
                 match = _ROUTE.match(path)
-                if not match or int(match.group(1)) >= len(reserver._sources):
-                    return self._send(404, b"no such camera", "text/plain")
-                source = reserver._sources[int(match.group(1))]
-                if match.group(2) == "snapshot":
-                    return self._snapshot(source)
-                return self._stream(source)
+                if match:
+                    if int(match.group(1)) >= len(reserver._sources):
+                        return self._send(404, b"no such camera", "text/plain")
+                    source = reserver._sources[int(match.group(1))]
+                    return self._snapshot(source) if match.group(2) == "snapshot" else self._stream(source)
+                self._dispatch("GET", path)
+
+            def do_POST(self):
+                self._dispatch("POST", self.path.split("?", 1)[0])
+
+            def _dispatch(self, method: str, path: str):
+                length = int(self.headers.get("Content-Length") or 0)
+                body = self.rfile.read(length) if length else b""
+                for route_method, pattern, handler in reserver._routes:
+                    match = pattern.match(path)
+                    if route_method == method and match:
+                        try:
+                            status, content_type, payload = handler(match, body)
+                        except Exception:
+                            _logger.exception("route %s %s failed", method, path)
+                            status, content_type, payload = 500, "text/plain", b"internal error"
+                        return self._send(status, payload, content_type)
+                self._send(404, b"not found", "text/plain")
 
             def _send(self, code: int, body: bytes, content_type: str) -> None:
                 self.send_response(code)

@@ -8,7 +8,9 @@ import time
 from typing import Callable
 
 from .camera.mjpeg_source import MjpegSource
+from . import VERSION
 from .config import Config
+from .console.status import build_console_status
 from .flashforge.client import FlashforgeClient, FlashforgeError
 from .flashforge.snapshot import MachineState, PrinterSnapshot, parse_snapshot
 from .job_tracker import Event, JobTracker
@@ -148,6 +150,33 @@ class Agent:
 
     def poll_interval(self) -> float:
         return POLL_ACTIVE_S if self._state_text in (PRINTING, PAUSED) else POLL_IDLE_S
+
+    # ── the phone console ──────────────────────────────────────────────────────────────────
+    def console_status(self) -> dict:
+        return build_console_status(snapshot=self._snapshot, state_text=self._state_text,
+                                    obico_connected=self.obico.connected.is_set(), pending_command=self.pending_command,
+                                    viewing=self.viewing, camera_count=len(self.cameras), version=VERSION,
+                                    now=self._clock())
+
+    def set_light(self, on: bool) -> bool:
+        """The chamber light, from the phone console. Immediate; the next poll shows the new state."""
+        try:
+            self.printer.set_light(on)
+        except FlashforgeError as exc:
+            _logger.warning("light %s refused: %s", "on" if on else "off", exc)
+            return False
+        _logger.info("console switched the light %s", "on" if on else "off")
+        return True
+
+    def request_command(self, cmd: str) -> bool:
+        """A pause/resume from the phone console. Queued like an Obico command, so it gets the same
+        retries, read-back and warm-up deferral. False for anything else."""
+        if cmd not in ("pause", "resume"):
+            return False
+        _logger.info("console asked to %s", cmd)
+        self._commands.put(cmd)
+        self._ensure_command_thread()
+        return True
 
     # ── Obico side ─────────────────────────────────────────────────────────────────────────
     def handle_server_message(self, message: dict) -> None:

@@ -35,6 +35,14 @@ def parse_state(raw) -> MachineState:
 
 
 @dataclass(frozen=True)
+class MaterialSlot:
+    slot_id: int
+    has_filament: bool
+    material: str
+    color: str
+
+
+@dataclass(frozen=True)
 class PrinterSnapshot:
     state: MachineState
     file_name: str
@@ -53,6 +61,9 @@ class PrinterSnapshot:
     chamber_target: float | None
     model: str
     firmware: str
+    light_on: bool = False
+    door_open: bool = False
+    slots: tuple[MaterialSlot, ...] = ()
 
     @property
     def has_job(self) -> bool:
@@ -71,6 +82,22 @@ def _floats(value) -> tuple[float, ...]:
     if not isinstance(value, list):
         return ()
     return tuple(f for f in (as_float(v) for v in value) if f is not None)
+
+
+def _slots(detail: dict) -> tuple[MaterialSlot, ...]:
+    station = detail.get("matlStationInfo")
+    infos = station.get("slotInfos") if isinstance(station, dict) else None
+    if not isinstance(infos, list):
+        return ()
+    slots = []
+    for index, info in enumerate(infos):
+        if not isinstance(info, dict):
+            continue
+        slots.append(MaterialSlot(slot_id=as_int(info.get("slotId")) or index + 1,
+                                  has_filament=bool(as_int(info.get("hasFilament"))),
+                                  material=as_str(info.get("materialName")),
+                                  color=as_str(info.get("materialColor"))))
+    return tuple(slots)
 
 
 def parse_snapshot(detail: dict) -> PrinterSnapshot:
@@ -93,4 +120,7 @@ def parse_snapshot(detail: dict) -> PrinterSnapshot:
         chamber_target=as_float(detail.get("chamberTargetTemp")),
         model=as_str(detail.get("model")),
         firmware=as_str(detail.get("firmwareVersion")),
+        light_on=as_str(detail.get("lightStatus")).lower() == "open",
+        door_open=as_str(detail.get("doorStatus")).lower() == "open",
+        slots=_slots(detail),
     )

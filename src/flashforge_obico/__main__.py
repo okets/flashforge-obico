@@ -2,6 +2,8 @@
 from __future__ import annotations
 
 import argparse
+import importlib.resources
+import json
 import logging
 import os
 import signal
@@ -32,6 +34,8 @@ def run(config: Config) -> int:
                         on_message=lambda message: holder["agent"].handle_server_message(message))
     agent = holder["agent"] = Agent(config, printer, obico, cameras)
     agent.reserver = reserver
+    if reserver:
+        _mount_console(reserver, agent)
 
     stop = threading.Event()
     for sig in (signal.SIGINT, signal.SIGTERM):
@@ -50,6 +54,39 @@ def run(config: Config) -> int:
             camera.stop()
         if reserver:
             reserver.stop()
+
+
+def _mount_console(server: CameraReserver, agent: Agent) -> None:
+    """The phone page: the console HTML at /, its status at /api/status, pause/resume at /api/job.
+    LAN-only by design (see README): pausing a print is a nuisance if abused, not a hazard, and
+    nothing on this page touches heaters."""
+    page = importlib.resources.files("flashforge_obico.console").joinpath("page.html").read_bytes()
+    server.add_route("GET", r"^/$", lambda match, body: (200, "text/html; charset=utf-8", page))
+    server.add_route("GET", r"^/api/status$",
+                     lambda match, body: (200, "application/json", json.dumps(agent.console_status()).encode()))
+
+    def job(match, body: bytes):
+        try:
+            action = json.loads(body or b"{}").get("action")
+        except ValueError:
+            action = None
+        if not isinstance(action, str) or not agent.request_command(action):
+            return 400, "application/json", b'{"error": "action must be pause or resume"}'
+        return 202, "application/json", json.dumps({"accepted": action}).encode()
+
+    server.add_route("POST", r"^/api/job$", job)
+
+    def light(match, body: bytes):
+        try:
+            on = json.loads(body or b"{}").get("on")
+        except ValueError:
+            on = None
+        if not isinstance(on, bool):
+            return 400, "application/json", b'{"error": "on must be true or false"}'
+        ok = agent.set_light(on)
+        return (200 if ok else 502), "application/json", json.dumps({"light_on": on if ok else None}).encode()
+
+    server.add_route("POST", r"^/api/light$", light)
 
 
 def link(config: Config, code: str) -> int:

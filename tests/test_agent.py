@@ -323,3 +323,21 @@ def test_configured_cameras_are_not_replaced_by_discovery(detail):
     agent.reserver = FakeReserver()
     agent.poll_once()
     assert agent.cameras == [cam]
+
+
+def test_console_light(detail):
+    agent, _ = make([detail])
+    agent.printer.set_light = lambda on: agent.printer.commands.append("light:" + ("on" if on else "off"))
+    assert agent.set_light(True) is True and agent.printer.commands == ["light:on"]
+
+
+def test_console_status_and_commands(detail):
+    printing = _printing(detail)
+    agent, _ = make([printing, {**printing, "status": "pause"}])
+    agent.poll_once()
+    st = agent.console_status()
+    assert st["connected"] and st["printer"]["can_pause"] and st["obico"]["connected"] is True
+    assert agent.request_command("cancel") is False            # never from the phone page
+    assert agent.request_command("pause") is True
+    assert agent.wait_for_commands(timeout=2.0)
+    assert agent.printer.commands == ["pause"]

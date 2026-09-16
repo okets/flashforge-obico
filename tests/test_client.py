@@ -67,6 +67,13 @@ def test_job_commands(method, action):
     assert body["serialNumber"] == "SN123" and body["checkCode"] == "CODE"
 
 
+@pytest.mark.parametrize("on,status", [(True, "open"), (False, "close")])
+def test_light_command(on, status):
+    client, transport = make([{"code": 0}])
+    client.set_light(on)
+    assert transport.calls[0][1]["payload"] == {"cmd": "lightControl_cmd", "args": {"status": status}}
+
+
 def test_error_message_never_contains_the_check_code():
     client, _ = make([{"code": 5, "message": "refused"}, ValueError("body was {'checkCode': 'CODE'}")])
     with pytest.raises(FlashforgeError) as first:

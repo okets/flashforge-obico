@@ -66,3 +66,18 @@ def test_warming_up_is_printing_with_no_progress_yet(detail):
     assert not parse_snapshot(detail).warming_up
     detail.update(status="pause")
     assert not parse_snapshot(detail).warming_up
+
+
+def test_light_door_and_material_slots(detail):
+    detail["lightStatus"] = "open"
+    detail["matlStationInfo"]["slotInfos"] = [
+        {"slotId": 1, "hasFilament": False, "materialName": "", "materialColor": ""},
+        {"slotId": 2, "hasFilament": True, "materialName": "ABS", "materialColor": "#8C8C89"},
+        "junk",
+        {"hasFilament": "1", "materialName": "PLA", "materialColor": "#FFFFFF"},
+    ]
+    s = parse_snapshot(detail)
+    assert s.light_on and not s.door_open
+    assert [(m.slot_id, m.has_filament, m.material) for m in s.slots] == [(1, False, ""), (2, True, "ABS"), (4, True, "PLA")]
+    detail.pop("matlStationInfo")
+    assert parse_snapshot(detail).slots == ()

@@ -273,3 +273,16 @@ returned auth token once, for pasting into `.env`. Nothing is written to disk by
 - **Cancel is accepted but only ever human-initiated.** Obico never auto-cancels; refusing the
   app's Cancel button would surprise the user.
 - **Environment-variable configuration.** Matches how the Obico compose stack is already configured.
+
+
+## 9. Addendum 2026-09-16: the phone console
+
+The re-server's HTTP port also serves a small standalone page (`console/page.html`, served at `/`)
+for watching a print from a phone at home: full-rate camera (a plain `<img>` with a 5 s canvas
+fingerprint to detect and reconnect a dead picture), state, progress, temperatures, material
+slots, an Obico line, and three controls: Pause, Resume and the chamber light. `GET /api/status`
+is built from the agent's existing poll (`console/status.py`); `POST /api/job` feeds the same
+command queue Obico's commands use, so retries, read-back and the warm-up deferral apply;
+`POST /api/light` is immediate. No cancel, no heaters, no login: LAN-only by design, judged an
+acceptable nuisance-level exposure by the user on 2026-09-16. The page is its own small document,
+not a copy of OrcaMCP's console, by the user's decision.

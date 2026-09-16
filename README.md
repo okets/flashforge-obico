@@ -149,3 +149,7 @@ FF_HOST=… FF_SERIAL=… FF_CHECK_CODE=… .venv/bin/pytest -q -m live   # agai
 ```
 
 The live test reads status and grabs a camera frame. It never sends job commands.
+
+## License
+
+MIT, see [LICENSE](LICENSE).

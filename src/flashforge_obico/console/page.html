@@ -88,7 +88,8 @@
     $("live").hidden = true; $("camOff").hidden = false; $("camOff").textContent = "Connecting to the camera…";
     cam.src = url + "?t=" + Date.now();
   }
-  cam.onload = function(){ $("camOff").hidden = true; };
+  cam.onload = function(){ $("camOff").hidden = true; };   /* single images only; an MJPEG <img> never fires load */
+  setInterval(function(){ if (camUrl && cam.naturalWidth) $("camOff").hidden = true; }, 500);
   cam.onerror = function(){ $("live").hidden = true; $("camOff").hidden = false; $("camOff").textContent = "Camera unavailable — retrying…"; };
   setInterval(function(){
     if (!camUrl || !cam.naturalWidth) return;
@@ -97,7 +98,7 @@
     var ctx = canvas.getContext("2d", { willReadFrequently:true }); ctx.drawImage(cam, 0, 0);
     var d = ctx.getImageData(0, 0, w, h).data, hash = 2166136261 ^ d.length;
     for (var i = 0; i < d.length; i += 389){ hash ^= d[i]; hash = (hash * 16777619) >>> 0; }
-    if (hash !== lastPrint){ lastPrint = hash; lastChange = Date.now(); $("live").hidden = false; }
+    if (hash !== lastPrint){ lastPrint = hash; lastChange = Date.now(); $("live").hidden = false; $("camOff").hidden = true; }
     else if (Date.now() - lastChange > 15000) connectCamera(camUrl);
   }, 5000);
 

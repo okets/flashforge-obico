@@ -68,6 +68,19 @@ def test_warming_up_is_printing_with_no_progress_yet(detail):
     assert not parse_snapshot(detail).warming_up
 
 
+def test_remaining_estimate_is_projected_from_progress(detail):
+    detail.update(status="printing", printFileName="a.gcode", printDuration=1020, printProgress=0.03, estimatedTime=1020)
+    s = parse_snapshot(detail)
+    assert s.remaining_s == 1020                       # the firmware's field, kept as reported
+    assert s.remaining_estimate_s == 32980            # 17 min elapsed at 3 % -> about 9 h 10 min left
+    detail.update(printProgress=0.01)
+    assert parse_snapshot(detail).remaining_estimate_s is None   # too early to project
+    detail.update(printProgress=0.5, printDuration=3600)
+    assert parse_snapshot(detail).remaining_estimate_s == 3600
+    detail.update(status="ready", printFileName="")
+    assert parse_snapshot(detail).remaining_estimate_s is None
+
+
 def test_light_door_and_material_slots(detail):
     detail["lightStatus"] = "open"
     detail["matlStationInfo"]["slotInfos"] = [

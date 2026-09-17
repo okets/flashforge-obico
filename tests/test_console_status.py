@@ -18,6 +18,7 @@ def test_printing_status(detail):
     p = st["printer"]
     assert p["state"] == "printing" and p["has_job"] and not p["warming_up"] and p["file"] == "a.gcode"
     assert p["progress"] == 0.25 and p["layer"] == 10 and p["total_layers"] == 40 and p["light_on"]
+    assert p["remaining_est_s"] == 300 and p["firmware_estimated_s"] == 300   # 100 s at 25 % -> 300 s left
     assert p["temperatures"]["nozzles"][0] == {"tool": 0, "current": 28.0, "target": 0.0}
     assert p["slots"] == [{"slot_id": 2, "has_filament": True, "material": "ABS", "color": "#8C8C89"}]
     assert p["can_pause"] and not p["can_resume"]

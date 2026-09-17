@@ -28,7 +28,8 @@ def build_console_status(*, snapshot: PrinterSnapshot | None, state_text: str, o
         "file": snapshot.file_name,
         "progress": snapshot.progress,
         "duration_s": snapshot.duration_s,
-        "remaining_s": snapshot.remaining_s,
+        "remaining_est_s": snapshot.remaining_estimate_s,       # our projection; None until progress is meaningful
+        "firmware_estimated_s": snapshot.remaining_s,            # the printer's estimatedTime, kept for study
         "layer": snapshot.layer,
         "total_layers": snapshot.total_layers,
         "error_code": snapshot.error_code,

@@ -70,7 +70,7 @@ def build_status(snapshot: PrinterSnapshot | None, tracker: JobTracker, state_te
             "completion": snapshot.progress * 100 if active else None,
             "filepos": 0,
             "printTime": snapshot.duration_s if active else None,
-            "printTimeLeft": snapshot.remaining_s if active else None,
+            "printTimeLeft": snapshot.remaining_estimate_s if active else None,
             "filamentUsed": None,
         },
         "temperatures": _temperatures(snapshot),

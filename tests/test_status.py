@@ -41,7 +41,7 @@ def test_printing_status_shape(detail):
     assert st["state"]["error"] is None
     assert st["job"]["file"] == {"name": "benchy.gcode", "path": "benchy.gcode", "display": "benchy.gcode",
                                  "obico_g_code_file_id": None}
-    assert st["progress"] == {"completion": 42.0, "filepos": 0, "printTime": 600, "printTimeLeft": 830,
+    assert st["progress"] == {"completion": 42.0, "filepos": 0, "printTime": 600, "printTimeLeft": 829,  # our projection (600 s at 42 %), not the firmware estimatedTime of 830
                               "filamentUsed": None}
     assert st["temperatures"]["tool0"] == {"actual": 210.0, "offset": 0, "target": 210.0}
     assert st["temperatures"]["tool3"] == {"actual": 30.0, "offset": 0, "target": 0.0}

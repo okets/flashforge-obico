@@ -191,7 +191,8 @@
     $("band").dataset.on = printing ? "1" : "0";
     $("fill").style.width = (printing ? p.progress*100 : 0) + "%";
     $("pct").textContent = printing ? Math.round(p.progress*100) + "%" : "";
-    $("left").textContent = printing ? (p.warming_up ? "warming up" : fmt(p.remaining_s) + " left") : "";
+    $("left").textContent = !printing ? "" : p.warming_up ? "warming up"
+                          : p.remaining_est_s === null ? "estimating…" : "est. " + fmt(p.remaining_est_s) + " left";
     $("file").textContent = printing ? (p.file || "Printing") : "Idle";
     $("sub").textContent = printing
       ? (p.total_layers ? "Layer " + (p.layer||0) + " of " + p.total_layers + ", " : "") + fmt(p.duration_s) + " elapsed"

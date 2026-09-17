@@ -19,6 +19,7 @@ class MachineState(str, Enum):
     UNKNOWN = "unknown"
 
 
+MIN_PROGRESS_FOR_ESTIMATE = 0.02
 ACTIVE_STATES = frozenset({MachineState.PRINTING, MachineState.HEATING, MachineState.BUSY, MachineState.PAUSED})
 # Firmware 1.9.9 reports the short forms; the long forms are kept so a future firmware that says
 # "paused" is not suddenly unknown. Verified on hardware 2026-09-15.
@@ -68,6 +69,15 @@ class PrinterSnapshot:
     @property
     def has_job(self) -> bool:
         return self.file_name != "" and self.state in ACTIVE_STATES
+
+    @property
+    def remaining_estimate_s(self) -> int | None:
+        """Time left, projected from elapsed time and progress. The firmware's own `estimatedTime`
+        does not mean "remaining" (on 1.9.9 it tracked the elapsed time, observed 2026-09-18), so the
+        estimate is ours; it needs a few percent of progress before the projection is worth showing."""
+        if not self.has_job or self.duration_s <= 0 or self.progress < MIN_PROGRESS_FOR_ESTIMATE:
+            return None
+        return int(round(self.duration_s * (1.0 - self.progress) / self.progress))
 
     @property
     def warming_up(self) -> bool:

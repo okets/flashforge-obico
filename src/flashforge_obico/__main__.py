@@ -4,6 +4,7 @@ from __future__ import annotations
 import argparse
 import importlib.resources
 import json
+import urllib.parse
 import logging
 import os
 import signal
@@ -57,9 +58,12 @@ def run(config: Config) -> int:
 
 
 def _mount_console(server: CameraReserver, agent: Agent) -> None:
-    """The phone page: the console HTML at /, its status at /api/status, pause/resume at /api/job.
-    LAN-only by design (see README): pausing a print is a nuisance if abused, not a hazard, and
-    nothing on this page touches heaters."""
+    """The phone page: the console HTML at /, its status at /api/status, pause/resume at /api/job,
+    the stored files at /api/files and starting one at /api/print.
+
+    LAN-only by design (see README), and still no login. Pause and the light stay harmless, but
+    /api/print starts a real job on a real machine, so the guard in Agent.start_print carries the
+    weight the absent login would: idle machine only, and only a name the printer itself listed."""
     page = importlib.resources.files("flashforge_obico.console").joinpath("page.html").read_bytes()
     server.add_route("GET", r"^/$", lambda match, body: (200, "text/html; charset=utf-8", page))
     server.add_route("GET", r"^/api/status$",
@@ -87,6 +91,32 @@ def _mount_console(server: CameraReserver, agent: Agent) -> None:
         return (200 if ok else 502), "application/json", json.dumps({"light_on": on if ok else None}).encode()
 
     server.add_route("POST", r"^/api/light$", light)
+
+    server.add_route("GET", r"^/api/files$",
+                     lambda match, body: (200, "application/json", json.dumps({"files": agent.files()}).encode()))
+
+    def thumbnail(match, body: bytes):
+        name = urllib.parse.unquote(match.group(1))
+        png = agent.thumbnail(name)
+        if png is None:
+            return 404, "application/json", b'{"error": "no thumbnail"}'
+        return 200, "image/png", png
+
+    server.add_route("GET", r"^/api/files/(.+)/thumbnail$", thumbnail)
+
+    def start_print(match, body: bytes):
+        try:
+            name = json.loads(body or b"{}").get("file")
+        except ValueError:
+            name = None
+        if not isinstance(name, str):
+            return 400, "application/json", b'{"error": "file must be a name from /api/files"}'
+        refusal = agent.start_print(name)
+        if refusal is None:
+            return 202, "application/json", json.dumps({"started": name}).encode()
+        return 409, "application/json", json.dumps({"error": refusal.value}).encode()
+
+    server.add_route("POST", r"^/api/print$", start_print)
 
 
 def link(config: Config, code: str) -> int:

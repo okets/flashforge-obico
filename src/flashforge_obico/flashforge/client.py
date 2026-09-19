@@ -5,11 +5,14 @@ by a zero result code in the body, not by the HTTP status.
 """
 from __future__ import annotations
 
+import base64
+import binascii
+
 from typing import Callable
 
 import requests
 
-from .parsing import as_int, as_str
+from .parsing import as_int, as_str, parse_gcode_files
 
 Transport = Callable[[str, dict], dict]
 """(url, json body) -> parsed JSON body. Raises on any transport problem."""
@@ -55,6 +58,39 @@ class FlashforgeClient:
 
     def set_light(self, on: bool) -> None:
         self._post("control", {"payload": {"cmd": "lightControl_cmd", "args": {"status": "open" if on else "close"}}})
+
+    def gcode_files(self) -> list[dict]:
+        """The files stored on the printer, with the per-file detail the firmware ships alongside."""
+        return parse_gcode_files(self._post("gcodeList", {}))
+
+    def gcode_thumbnail(self, file_name: str) -> bytes | None:
+        """The file's own thumbnail PNG, or None when the printer has nothing usable for it.
+
+        Undocumented, like `gcodeListDetail`: `gcodeThumb` answers with the image base64-encoded in
+        `imageData`. The magic number is checked because the field is the printer's word, not ours,
+        and a page that serves whatever arrives as an image is a page that serves anything.
+        """
+        data = self._post("gcodeThumb", {"fileName": file_name}).get("imageData")
+        if not isinstance(data, str) or not data:
+            return None
+        try:
+            raw = base64.b64decode(data, validate=True)
+        except (ValueError, binascii.Error):
+            return None
+        return raw if raw.startswith(b"\x89PNG\r\n\x1a\n") else None
+
+    def print_gcode(self, file_name: str, *, leveling: bool = False,
+                    material_mappings: list | None = None) -> None:
+        """Start a stored file. Every field is sent because the firmware reads them all."""
+        mappings = material_mappings or []
+        self._post("printGcode", {
+            "fileName": file_name,
+            "levelingBeforePrint": leveling,
+            "flowCalibration": False,
+            "useMatlStation": bool(mappings),
+            "gcodeToolCnt": len(mappings),
+            "materialMappings": mappings,
+        })
 
     def _job_command(self, action: str) -> None:
         self._post("control", {"payload": {"cmd": "jobCtl_cmd", "args": {"jobID": "", "action": action}}})

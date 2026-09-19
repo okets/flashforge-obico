@@ -40,14 +40,21 @@ The same port serves a small page for watching a print from a phone at home:
 
 | URL | What |
 |---|---|
-| `http://<host>:8081/` | Live camera, state, progress, temperatures, material slots, **Pause / Resume / Light** |
+| `http://<host>:8081/` | Live camera, state, progress, temperatures, material slots, the stored files, **Pause / Resume / Light / Print** |
 | `http://<host>:8081/api/status` | The JSON behind it |
 | `POST /api/job` `{"action": "pause"\|"resume"}` | Same retry / read-back / warm-up-deferral path as an Obico command |
 | `POST /api/light` `{"on": true\|false}` | Chamber light |
+| `GET /api/files` | The files stored on the printer, with print time, filament weight and per-tool materials |
+| `GET /api/files/<name>/thumbnail` | That file's own thumbnail, as a PNG |
+| `POST /api/print` `{"file": "<name>"}` | Start a stored file. 409 with `not_ready` or `unknown_file` when refused |
 
-There is deliberately no login: it is for the LAN (or the tailnet, which is the same thing), it
-never touches heaters, and pausing a print is a nuisance if abused rather than a hazard. Cancel is
-not offered here on purpose. Do not expose the port beyond the LAN.
+There is deliberately no login: it is for the LAN (or the tailnet, which is the same thing). That
+was easy to argue while the page only paused a print and never touched a heater. `/api/print` is
+not in that class -- it starts a real job on a real machine -- so the guard stands in for the
+missing login: the printer must be idle, and the file name must be one the printer itself just
+listed, re-read on every request rather than trusted from the page. The button needs two taps. A
+job already running can only be paused or resumed, never replaced. Cancel is still not offered
+here on purpose. Do not expose the port beyond the LAN.
 
 ## Configuration
 

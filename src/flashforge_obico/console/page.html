@@ -69,6 +69,23 @@
   .temp .val small{color:var(--text-3);font-size:13px}
 
   section.slots{display:grid;grid-template-columns:repeat(4,1fr);gap:10px}
+
+  /* Stored files: one card per job the printer is holding, with its own thumbnail. */
+  section.files{display:grid;gap:10px}
+  .files h2{margin:4px 2px 0;font-size:15px;font-weight:600;color:var(--text-2);letter-spacing:-.01em}
+  .file{display:grid;grid-template-columns:auto 1fr auto;gap:12px;align-items:center;
+        padding:10px;border-radius:12px;background:var(--panel)}
+  .file img{width:56px;height:56px;border-radius:9px;background:var(--panel-2);object-fit:contain;flex:none}
+  .file .none{width:56px;height:56px;border-radius:9px;background:var(--panel-2);display:grid;place-items:center;
+              color:var(--text-3);font-size:11px}
+  .file .name{font-size:14px;color:var(--text);overflow-wrap:anywhere;line-height:1.3}
+  .file .meta{margin-top:3px;font-size:12px;color:var(--text-3);display:flex;align-items:center;gap:6px;flex-wrap:wrap}
+  .file .dots{display:inline-flex;gap:3px}
+  .file .dots i{width:9px;height:9px;border-radius:50%;border:1px solid rgba(255,255,255,.18)}
+  .file button{font:inherit;font-size:13px;padding:8px 14px;border-radius:9px;border:0;
+               background:var(--panel-2);color:var(--text);cursor:pointer}
+  .file button[data-arm="1"]{background:var(--act);color:var(--act-ink);font-weight:600}
+  .file button:disabled{opacity:.4;cursor:default}
   .slot{display:grid;gap:8px;padding:12px 10px;border-radius:12px;background:var(--panel);text-align:center;font-size:13px;color:var(--text-3)}
   .slot .chip{width:34px;height:34px;border-radius:50%;margin:0 auto;border:3px solid var(--line);background:var(--panel-2);position:relative}
   .slot.full{color:var(--text)}
@@ -122,6 +139,7 @@
 
   <section class="temps" id="temps"></section>
   <section class="slots" id="slots"></section>
+  <section class="files" id="files" hidden></section>
 
   <footer>
     <div class="line" id="foot"><svg viewBox="0 0 24 24"><path d="M12 3l7 3v5c0 5-3.5 8.5-7 10-3.5-1.5-7-5-7-10V6z"/><path d="M9.5 12l1.8 1.8L15 10"/></svg><span id="footText">Connecting to the agent…</span></div>
@@ -221,8 +239,84 @@
              (s.has_filament ? (s.material || "Loaded") : "Empty") + '</div>';
     }).join("");
 
+    renderFiles(k === "ready");
+
     $("footText").textContent = (st.obico.connected ? "Watched by Obico." : "Obico is not connected.") + " Agent " + st.version;
   }
+  /* ── stored files ──────────────────────────────────────────────────────────────────────
+        Fetched once, then only when the printer goes idle again (a finished job leaves a new file).
+        Starting one is two taps: the first arms the button, the second sends. There is no login on
+        this page, so the agent checks the same things again before it obeys. ── */
+  var filesLoaded = false, lastReady = null, armed = null, armTimer = null;
+
+  function fileMeta(f){
+    var bits = [];
+    if (f.printing_time_s) bits.push(fmt(f.printing_time_s));
+    if (f.filament_weight_g) bits.push(Math.round(f.filament_weight_g) + " g");
+    var names = [];
+    (f.tools || []).forEach(function(t){ if (t.material && names.indexOf(t.material) < 0) names.push(t.material); });
+    if (names.length) bits.push(names.join(", "));
+    return bits.join(" · ");
+  }
+
+  function drawFiles(files, ready){
+    var box = $("files");
+    if (!files.length){ box.hidden = true; return; }
+    box.hidden = false;
+    var html = "<h2>On the printer</h2>";
+    files.forEach(function(f){
+      var url = "/api/files/" + encodeURIComponent(f.name) + "/thumbnail";
+      var dots = (f.tools || []).map(function(t){
+        return '<i style="background:' + (t.color || "transparent") + '"></i>';
+      }).join("");
+      var isArmed = armed === f.name;
+      html += '<div class="file">' +
+                '<img src="' + url + '" alt="" loading="lazy" onerror="this.replaceWith(Object.assign(document.createElement(\'div\'),{className:\'none\',textContent:\'no image\'}))">' +
+                '<div><div class="name">' + f.name.replace(/</g, "&lt;") + '</div>' +
+                  '<div class="meta"><span class="dots">' + dots + '</span>' + fileMeta(f) + '</div></div>' +
+                '<button data-file="' + encodeURIComponent(f.name) + '" data-arm="' + (isArmed ? "1" : "0") + '"' +
+                  (ready ? "" : " disabled") + '>' + (isArmed ? "Confirm" : "Print") + '</button>' +
+              '</div>';
+    });
+    box.innerHTML = html;
+    box.querySelectorAll("button[data-file]").forEach(function(btn){
+      btn.addEventListener("click", function(){
+        var name = decodeURIComponent(btn.dataset.file);
+        if (armed !== name){
+          armed = name; clearTimeout(armTimer);
+          armTimer = setTimeout(function(){ armed = null; drawFiles(lastFiles, true); }, 5000);
+          drawFiles(lastFiles, true);
+          return;
+        }
+        armed = null; clearTimeout(armTimer);
+        btn.disabled = true; btn.textContent = "Starting…";
+        fetch("/api/print", { method:"POST", headers:{"Content-Type":"application/json"},
+                              body: JSON.stringify({ file: name }) })
+          .then(function(r){ return r.json().then(function(j){ return { ok:r.ok, body:j }; }); })
+          .then(function(res){
+            if (!res.ok){
+              btn.textContent = res.body.error === "not_ready" ? "Printer busy" : "Refused";
+              setTimeout(function(){ drawFiles(lastFiles, false); }, 2500);
+            }
+          })
+          .catch(function(){ btn.textContent = "Failed"; });
+      });
+    });
+  }
+
+  var lastFiles = [];
+  function renderFiles(ready){
+    if (!filesLoaded || (ready && lastReady === false)){
+      filesLoaded = true;
+      fetch("/api/files", { cache:"no-store" }).then(function(r){ return r.json(); })
+        .then(function(j){ lastFiles = j.files || []; drawFiles(lastFiles, ready); })
+        .catch(function(){});
+    } else if (ready !== lastReady){
+      drawFiles(lastFiles, ready);
+    }
+    lastReady = ready;
+  }
+
   function poll(){
     fetch("/api/status", { cache:"no-store" }).then(function(r){ return r.json(); }).then(render)
       .catch(function(){ $("state").dataset.k = "offline"; $("stateText").textContent = "Agent not reachable"; });

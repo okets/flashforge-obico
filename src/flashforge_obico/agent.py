@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import logging
+from enum import Enum
 import queue
 import threading
 import time
@@ -27,6 +28,32 @@ READBACK_ATTEMPTS, READBACK_INTERVAL_S = 5, 1.0
 MAX_COMMAND_ATTEMPTS = 3   # send + read-back cycles before a command is declared not taken
 EXIT_OK, EXIT_SHARED_TOKEN = 0, 2
 COMMANDS = ("pause", "resume", "cancel")
+
+
+class PrintRefused(str, Enum):
+    """Why a start was refused. The page shows the reason; the log records it."""
+    NOT_READY = "not_ready"
+    UNKNOWN_FILE = "unknown_file"
+
+
+# A finished or cancelled job leaves the machine idle, so those count as ready; everything else,
+# including a state we could not read, does not. Pure so the rule can be tested without a printer.
+_READY_TO_START = frozenset({MachineState.READY, MachineState.COMPLETED, MachineState.CANCELLED})
+
+
+def may_start_print(state, file_name: str, known_files) -> PrintRefused | None:
+    """None when the start is allowed, otherwise why not.
+
+    The console has no login. That was defensible while it only paused a print and never touched a
+    heater; starting one is neither. So this carries the weight the absent login would have: the
+    machine must be idle, and the name must be one the printer itself listed -- which also means a
+    caller cannot reach a path of its own choosing.
+    """
+    if state not in _READY_TO_START:
+        return PrintRefused.NOT_READY
+    if not file_name or file_name not in set(known_files):
+        return PrintRefused.UNKNOWN_FILE
+    return None
 
 
 class Agent:
@@ -167,6 +194,54 @@ class Agent:
             return False
         _logger.info("console switched the light %s", "on" if on else "off")
         return True
+
+    def files(self) -> list[dict]:
+        """The printer's stored files. An unreachable printer is an empty list, not an error page."""
+        try:
+            return self.printer.gcode_files()
+        except FlashforgeError as exc:
+            _logger.warning("file list refused: %s", exc)
+            return []
+
+    def thumbnail(self, file_name: str) -> bytes | None:
+        try:
+            return self.printer.gcode_thumbnail(file_name)
+        except FlashforgeError as exc:
+            _logger.warning("thumbnail for %r refused: %s", file_name, exc)
+            return None
+
+    def start_print(self, file_name: str) -> PrintRefused | None:
+        """Start a stored file from the phone console. None on success, otherwise why not.
+
+        The file list is re-read here rather than trusted from the page: the guard has to check the
+        name against what the printer says it holds right now, not against what a stale tab shows.
+        """
+        try:
+            files = self.printer.gcode_files()
+        except FlashforgeError as exc:
+            _logger.warning("could not read the file list before starting %r: %s", file_name, exc)
+            return PrintRefused.UNKNOWN_FILE
+
+        state = self._snapshot.state if self._snapshot else None
+        refusal = may_start_print(state, file_name, [entry["name"] for entry in files])
+        if refusal is not None:
+            _logger.warning("refused to start %r: %s", file_name, refusal.value)
+            return refusal
+
+        # Reuse the tool-to-slot mapping the file was sliced with; the firmware needs it to feed the
+        # right material, and the file itself is the only place that knows.
+        chosen = next((entry for entry in files if entry["name"] == file_name), {})
+        mappings = [{"toolId": tool["tool_id"], "slotId": tool["slot_id"]}
+                    for tool in chosen.get("tools", [])
+                    if tool["tool_id"] is not None and tool["slot_id"] is not None]
+
+        try:
+            self.printer.print_gcode(file_name, material_mappings=mappings if chosen.get("uses_material_station") else [])
+        except FlashforgeError as exc:
+            _logger.warning("printer refused to start %r: %s", file_name, exc)
+            return PrintRefused.NOT_READY
+        _logger.info("console started %r", file_name)
+        return None
 
     def request_command(self, cmd: str) -> bool:
         """A pause/resume from the phone console. Queued like an Obico command, so it gets the same

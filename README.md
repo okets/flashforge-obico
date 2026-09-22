@@ -29,6 +29,14 @@ Point OrcaSlicer, browsers and anything else at these, never at the printer's po
 agent runs. The agent also publishes these URLs to Obico in the printer's webcam list
 (`settings.webcams[i].stream_url`), so a client that only knows the Obico server can discover them.
 
+The slot is only free once the viewer's connection goes away, so the agent hangs up on the camera
+the moment it is asked to stop. Kill it outright instead -- `docker kill`, or a host that loses
+power -- and the printer goes on holding a client that is no longer there: every reconnect is
+refused with `Connection reset by peer` until the firmware's own TCP timeout expires, which took
+two hours and twenty minutes the one time it happened here. Nothing restarts that faster, so the
+console says why the picture is missing instead of showing a broken image, and `/api/status`
+carries the same in `cameras[i].last_error`.
+
 The re-server answers with `Access-Control-Allow-Origin: *`, like the printer's own camera server
 does, so a browser page (OrcaSlicer's console) can read the stream and notice when it stops. It
 carries no credential; anything on the LAN can already view the printer's camera, and this relay

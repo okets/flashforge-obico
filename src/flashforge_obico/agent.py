@@ -182,8 +182,8 @@ class Agent:
     def console_status(self) -> dict:
         return build_console_status(snapshot=self._snapshot, state_text=self._state_text,
                                     obico_connected=self.obico.connected.is_set(), pending_command=self.pending_command,
-                                    viewing=self.viewing, camera_count=len(self.cameras), version=VERSION,
-                                    now=self._clock())
+                                    viewing=self.viewing, cameras=[c.health() for c in self.cameras],
+                                    version=VERSION, now=self._clock())
 
     def set_light(self, on: bool) -> bool:
         """The chamber light, from the phone console. Immediate; the next poll shows the new state."""

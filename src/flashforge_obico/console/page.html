@@ -165,7 +165,19 @@
     cam.src = url + "?t=" + Date.now();
   }
   cam.onload  = function(){ $("camOff").hidden = true; };   /* single frames; an MJPEG <img> may never fire load */
-  cam.onerror = function(){ $("live").hidden = true; $("camOff").hidden = false; $("camOff").textContent = "The camera is not answering. Retrying…"; };
+  cam.onerror = function(){ $("live").hidden = true; $("camOff").hidden = false; $("camOff").textContent = camTrouble(lastHealth); };
+  /* The agent knows why a picture is missing, so say it instead of leaving a broken image.
+     The printer serves one viewer at a time, which is the usual reason. */
+  var lastHealth = null;
+  function camTrouble(c){
+    if (!c) return "No camera.";
+    if (!c.last_error) return c.frame_age_s === null ? "Waiting for the first frame…" : "Connecting to the camera…";
+    if (/reset/i.test(c.last_error))   /* the printer hangs up on a second viewer */
+      return "The printer is refusing the camera. It allows one viewer at a time, so another may "
+           + "still hold it. (" + c.last_error + ")";
+    if (c.frame_age_s !== null) return "The camera dropped out. Reconnecting… (" + c.last_error + ")";
+    return "The camera is not answering. (" + c.last_error + ")";
+  }
   setInterval(function(){ if (camUrl && cam.naturalWidth) $("camOff").hidden = true; }, 500);
   setInterval(function(){
     if (!camUrl || !cam.naturalWidth) return;
@@ -199,6 +211,8 @@
     $("state").dataset.k = k;
     $("stateText").textContent = { offline:"Printer not reachable", error:"Printer error", paused:"Paused", warming:"Warming up", printing:"Printing", ready:"Ready" }[k];
     if (st.camera && st.camera !== camUrl) connectCamera(st.camera);
+    lastHealth = st.cameras && st.cameras[0];
+    if (!cam.naturalWidth) $("camOff").textContent = camTrouble(lastHealth);
 
     if (!p){
       $("file").textContent = "Printer not reachable"; $("sub").textContent = "The agent is polling; the page fills in when it answers.";
